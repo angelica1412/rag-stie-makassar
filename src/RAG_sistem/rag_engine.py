@@ -1,30 +1,48 @@
-from llama_index.core import VectorStoreIndex, StorageContext, Settings
-from llama_index.core.prompts import PromptTemplate
+from llama_index.core import VectorStoreIndex, StorageContext, Settings, PromptTemplate
+from llama_index.core.retrievers import QueryFusionRetriever
+from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.llms.ollama import Ollama
+from llama_index.core.llms import ChatMessage
 import chromadb
+import ollama as ollama_client
 
 CHROMA_PATH = "./data/chroma_db"
 COLLECTION_NAME = "stie_documents"
 EMBED_MODEL = "nomic-embed-text"
 LLM_MODEL = "qwen2.5:7b"
+SIMILARITY_THRESHOLD = 0.5   # target skor minimal setelah perbaikan chunking + hybrid search
 
-SIMILARITY_THRESHOLD = 0.3
+# Token awal yang menandakan LLM tidak tahu jawabannya
+TIDAK_TAHU_TOKENS = [
+    "maaf",
+    "tidak tersedia",
+    "tidak ditemukan",
+    "tidak ada",
+    "tidak disebutkan",
+    "tidak terdapat",
+    "informasi tersebut tidak",
+    "tidak memiliki informasi",
+    "tidak dapat menemukan",
+    "i cannot",
+    "i don't",
+    "i do not",
+    "no information",
+    "not found",
+    "not available",
+]
 
 def load_index():
-
-    # Set model
+    """Load index dari ChromaDB yang sudah ada."""
     Settings.embed_model = OllamaEmbedding(model_name=EMBED_MODEL)
     Settings.llm = Ollama(model=LLM_MODEL, request_timeout=120.0)
 
-    # Load ChromaDB
     chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
     chroma_collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-    # Load index
     index = VectorStoreIndex.from_vector_store(
         vector_store,
         storage_context=storage_context
@@ -32,34 +50,165 @@ def load_index():
     return index
 
 def get_query_engine(index):
-    """Buat query engine dari index dengan instruksi menjawab dalam Bahasa Indonesia."""
-
-    # Custom prompt: paksa LLM menjawab dalam Bahasa Indonesia
-    BAHASA_INDONESIA_PROMPT = PromptTemplate(
-        "Kamu adalah asisten akademik STIE Ciputra Makassar yang menjawab "
-        "pertanyaan berdasarkan dokumen internal kampus.\n"
-        "Selalu jawab dalam Bahasa Indonesia yang baik dan benar.\n"
-        "Jika informasi ada dalam konteks, jawab secara ringkas dan jelas.\n"
-        "Jika informasi tidak ada dalam konteks, katakan bahwa informasi tidak tersedia "
-        "dalam dokumen yang ada.\n\n"
+    """Buat query engine untuk retrieval saja — tanpa generate jawaban."""
+    qa_prompt = PromptTemplate(
+        "Kamu adalah asisten sistem tanya jawab dokumen internal "
+        "STIE Ciputra Makassar. Jawab pertanyaan HANYA berdasarkan "
+        "informasi yang ada dalam konteks dokumen berikut.\n\n"
         "Konteks dokumen:\n"
         "---------------------\n"
         "{context_str}\n"
         "---------------------\n\n"
+        "Aturan penting:\n"
+        "1. Jawab SELALU dalam Bahasa Indonesia\n"
+        "2. Jika informasi tidak ada dalam konteks, jawab PERSIS dengan: "
+        "'Maaf, informasi tersebut tidak tersedia dalam dokumen internal kampus.'\n"
+        "3. Jangan mengarang jawaban\n"
+        "4. Jangan menyarankan untuk mencari di tempat lain\n\n"
         "Pertanyaan: {query_str}\n"
-        "Jawaban (dalam Bahasa Indonesia):"
+        "Jawaban: "
     )
 
     query_engine = index.as_query_engine(
         similarity_top_k=5,
         streaming=False,
-        text_qa_template=BAHASA_INDONESIA_PROMPT,
+        text_qa_template=qa_prompt
     )
     return query_engine
 
-def query_documents(query_engine, question: str) -> dict:
-    response = query_engine.query(question)
-    source_nodes = response.source_nodes
+def retrieve_context(index, question: str) -> tuple[list, str]:
+    """
+    Ambil konteks dokumen menggunakan HYBRID SEARCH:
+    1. Vector retrieval (top-20): ambil banyak kandidat secara semantic
+    2. BM25 re-ranking          : urutkan kandidat dengan keyword matching
+    3. Kembalikan top-5 hasil re-ranking
+
+    Cara ini bekerja dengan ChromaDB karena BM25 dibangun
+    dari nodes hasil vector retrieval, bukan dari docstore.
+    """
+    TOP_K_CANDIDATES = 20   # kandidat awal dari vector
+    TOP_K_FINAL      = 5    # hasil akhir setelah re-ranking
+
+    # Step 1: Vector retrieval — ambil banyak kandidat
+    vector_retriever = index.as_retriever(similarity_top_k=TOP_K_CANDIDATES)
+    candidate_nodes = vector_retriever.retrieve(question)
+
+    if not candidate_nodes:
+        return [], ""
+
+    # Step 2: BM25 re-ranking dari kandidat yang sudah didapat
+    try:
+        bm25_retriever = BM25Retriever.from_defaults(
+            nodes=[n.node for n in candidate_nodes],
+            similarity_top_k=TOP_K_FINAL,
+        )
+        reranked_nodes = bm25_retriever.retrieve(question)
+
+        # Kembalikan node dengan skor vector asli (supaya threshold bisa dibandingkan)
+        node_map = {n.node.node_id: n for n in candidate_nodes}
+        final_nodes = []
+        for bm25_node in reranked_nodes:
+            nid = bm25_node.node.node_id
+            orig = node_map.get(nid)
+            final_nodes.append(orig if orig else bm25_node)
+
+        print(f"[HYBRID] Vector({len(candidate_nodes)}) + BM25 re-rank -> top {len(final_nodes)}")
+
+    except Exception as e:
+        print(f"[HYBRID] BM25 gagal ({e}), pakai vector top-{TOP_K_FINAL}")
+        final_nodes = candidate_nodes[:TOP_K_FINAL]
+
+    context_parts = [node.get_content() for node in final_nodes]
+    context_text = "\n\n---\n\n".join(context_parts)
+    return final_nodes, context_text
+
+def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
+    """
+    Generate jawaban menggunakan Ollama streaming.
+    Pantau token awal — kalau menunjukkan tidak tahu, hentikan streaming.
+    
+    Return: (answer_text, is_found)
+    - is_found=True  → jawaban ditemukan, tampilkan ke pengguna
+    - is_found=False → tidak ditemukan, lempar ke HITL
+    """
+    prompt = (
+        f"Kamu adalah asisten sistem tanya jawab dokumen internal "
+        f"STIE Ciputra Makassar. Jawab pertanyaan HANYA berdasarkan "
+        f"informasi yang ada dalam konteks dokumen berikut.\n\n"
+        f"Konteks dokumen:\n"
+        f"---------------------\n"
+        f"{context}\n"
+        f"---------------------\n\n"
+        f"Aturan penting:\n"
+        f"1. Jawab SELALU dalam Bahasa Indonesia\n"
+        f"2. Jika informasi tidak ada dalam konteks, mulai jawaban dengan: "
+        f"'Maaf, informasi tersebut tidak tersedia'\n"
+        f"3. Jangan mengarang jawaban\n\n"
+        f"Pertanyaan: {question}\n"
+        f"Jawaban: "
+    )
+
+    full_answer = ""
+    checked = False      # sudah cek token awal atau belum
+    is_found = True      # asumsi awal: jawaban ada
+
+    print("[STREAMING] Mulai generate jawaban...")
+
+    try:
+        # Gunakan Ollama streaming langsung
+        stream = ollama_client.generate(
+            model=LLM_MODEL,
+            prompt=prompt,
+            stream=True
+        )
+
+        for chunk in stream:
+            token = chunk.get("response", "")
+            full_answer += token
+
+            # Cek 50 karakter pertama untuk deteksi dini
+            if not checked and len(full_answer) >= 50:
+                checked = True
+                answer_lower = full_answer.lower().strip()
+
+                tidak_tahu = any(
+                    phrase in answer_lower
+                    for phrase in TIDAK_TAHU_TOKENS
+                )
+
+                if tidak_tahu:
+                    print(f"[STREAMING] Deteksi dini: LLM tidak tahu → stop streaming")
+                    print(f"[STREAMING] Token awal: '{full_answer[:80]}'")
+                    is_found = False
+                    break
+
+            # Kalau sudah dicek dan jawaban ada, lanjutkan
+            if checked and is_found:
+                print(token, end="", flush=True)
+
+            # Stop kalau sudah selesai
+            if chunk.get("done", False):
+                break
+
+    except Exception as e:
+        print(f"[STREAMING] Error: {e}")
+        is_found = False
+
+    print()  # newline setelah streaming
+    return full_answer, is_found
+
+
+def query_documents(query_engine, question: str, index=None) -> dict:
+    """
+    Kirim pertanyaan ke sistem RAG dengan interruptible streaming.
+    """
+    # Ambil konteks dari ChromaDB
+    if index is None:
+        # Fallback ke cara lama kalau index tidak diberikan
+        response = query_engine.query(question)
+        source_nodes = response.source_nodes
+    else:
+        source_nodes, context_text = retrieve_context(index, question)
 
     if not source_nodes:
         return {"status": "not_found", "answer": None, "sources": []}
@@ -74,30 +223,21 @@ def query_documents(query_engine, question: str) -> dict:
     print(f"[DEBUG] Top score: {top_score:.4f}, Threshold: {SIMILARITY_THRESHOLD}")
 
     if top_score < SIMILARITY_THRESHOLD:
+        print("[DEBUG] Skor di bawah threshold → HITL")
         return {"status": "not_found", "answer": None, "sources": []}
 
-    # Cek apakah LLM menyatakan informasi tidak tersedia
-    answer_text = str(response)
-    frasa_tidak_tersedia = [
-        "tidak tersedia dalam dokumen",
-        "tidak ada dalam dokumen",
-        "tidak ditemukan dalam dokumen",
-        "tidak ada informasi",
-        "tidak disebutkan",
-        "tidak terdapat",
-        "maaf, informasi tersebut tidak tersedia",
-    ]
+    # Generate jawaban dengan interruptible streaming
+    if index is not None:
+        answer, is_found = stream_with_interrupt(question, context_text)
+    else:
+        answer = str(response)
+        is_found = True
 
-    jawaban_tidak_ada = any(
-        frasa in answer_text.lower()
-        for frasa in frasa_tidak_tersedia
-    )
-
-    if jawaban_tidak_ada:
-        print("[DEBUG] LLM menyatakan informasi tidak ada → HITL")
+    if not is_found:
+        print("[DEBUG] Streaming dihentikan — jawaban tidak ada → HITL")
         return {"status": "not_found", "answer": None, "sources": []}
 
-    # Kumpulkan sumber yang relevan
+    # Kumpulkan sumber dokumen
     sources = []
     for node in source_nodes:
         score = node.score if node.score else 0
@@ -110,9 +250,10 @@ def query_documents(query_engine, question: str) -> dict:
 
     return {
         "status": "found",
-        "answer": answer_text,
+        "answer": answer,
         "sources": sources
     }
+
 
 if __name__ == "__main__":
     print("Memuat index dari ChromaDB...")
@@ -120,22 +261,19 @@ if __name__ == "__main__":
     query_engine = get_query_engine(index)
     print("Index berhasil dimuat!\n")
 
-    # Test dengan pertanyaan
     while True:
         question = input("Masukkan pertanyaan (ketik 'keluar' untuk berhenti): ")
         if question.lower() == "keluar":
             break
 
         print("\nMencari jawaban...")
-        result = query_documents(query_engine, question)
+        # Kirim index supaya bisa pakai interruptible streaming
+        result = query_documents(query_engine, question, index=index)
 
         if result["status"] == "found":
             print(f"\nJawaban: {result['answer']}")
             print(f"Sumber dokumen: {', '.join(result['sources'])}")
-        elif result["status"] == "low_confidence":
-            print(f"\nInformasi tidak ditemukan dengan keyakinan cukup (skor tertinggi: {result.get('top_score', 0):.4f}).")
-            print("Pertanyaan ini akan diteruskan ke staf QA (HITL).")
         else:
-            print("\nInformasi tidak ditemukan dalam dokumen (tidak ada node relevan).")
+            print("\nInformasi tidak ditemukan dalam dokumen.")
             print("Pertanyaan ini akan diteruskan ke staf QA (HITL).")
         print("\n" + "="*50 + "\n")
