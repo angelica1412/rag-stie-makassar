@@ -6,13 +6,10 @@ import fitz
 import pdfplumber
 from llama_index.core import Document
 
-# Untuk membaca docx
 from docx import Document as DocxDocument
 
-# Untuk membaca xlsx
 import openpyxl
 
-# ── Path subfolder ────────────────────────────────────────────────────────────
 NARATIF_PATH = "./data/documents/naratif"
 FORM_PATH = "./data/documents/form"
 

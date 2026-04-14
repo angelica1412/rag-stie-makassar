@@ -1,6 +1,4 @@
 from llama_index.core import VectorStoreIndex, StorageContext, Settings, PromptTemplate
-from llama_index.core.retrievers import QueryFusionRetriever
-from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.llms.ollama import Ollama
@@ -10,9 +8,9 @@ import ollama as ollama_client
 
 CHROMA_PATH = "./data/chroma_db"
 COLLECTION_NAME = "stie_documents"
-EMBED_MODEL = "nomic-embed-text"
+EMBED_MODEL = "qwen3-embedding"
 LLM_MODEL = "qwen2.5:7b"
-SIMILARITY_THRESHOLD = 0.5   # target skor minimal setelah perbaikan chunking + hybrid search
+SIMILARITY_THRESHOLD = 0.3
 
 # Token awal yang menandakan LLM tidak tahu jawabannya
 TIDAK_TAHU_TOKENS = [
@@ -78,49 +76,19 @@ def get_query_engine(index):
 
 def retrieve_context(index, question: str) -> tuple[list, str]:
     """
-    Ambil konteks dokumen menggunakan HYBRID SEARCH:
-    1. Vector retrieval (top-20): ambil banyak kandidat secara semantic
-    2. BM25 re-ranking          : urutkan kandidat dengan keyword matching
-    3. Kembalikan top-5 hasil re-ranking
-
-    Cara ini bekerja dengan ChromaDB karena BM25 dibangun
-    dari nodes hasil vector retrieval, bukan dari docstore.
+    Ambil konteks dokumen yang relevan dari ChromaDB.
+    Return: (source_nodes, context_text)
     """
-    TOP_K_CANDIDATES = 20   # kandidat awal dari vector
-    TOP_K_FINAL      = 5    # hasil akhir setelah re-ranking
-
-    # Step 1: Vector retrieval — ambil banyak kandidat
-    vector_retriever = index.as_retriever(similarity_top_k=TOP_K_CANDIDATES)
-    candidate_nodes = vector_retriever.retrieve(question)
-
-    if not candidate_nodes:
-        return [], ""
-
-    # Step 2: BM25 re-ranking dari kandidat yang sudah didapat
-    try:
-        bm25_retriever = BM25Retriever.from_defaults(
-            nodes=[n.node for n in candidate_nodes],
-            similarity_top_k=TOP_K_FINAL,
-        )
-        reranked_nodes = bm25_retriever.retrieve(question)
-
-        # Kembalikan node dengan skor vector asli (supaya threshold bisa dibandingkan)
-        node_map = {n.node.node_id: n for n in candidate_nodes}
-        final_nodes = []
-        for bm25_node in reranked_nodes:
-            nid = bm25_node.node.node_id
-            orig = node_map.get(nid)
-            final_nodes.append(orig if orig else bm25_node)
-
-        print(f"[HYBRID] Vector({len(candidate_nodes)}) + BM25 re-rank -> top {len(final_nodes)}")
-
-    except Exception as e:
-        print(f"[HYBRID] BM25 gagal ({e}), pakai vector top-{TOP_K_FINAL}")
-        final_nodes = candidate_nodes[:TOP_K_FINAL]
-
-    context_parts = [node.get_content() for node in final_nodes]
+    retriever = index.as_retriever(similarity_top_k=5)
+    nodes = retriever.retrieve(question)
+    
+    # Gabungkan teks dari semua node menjadi satu konteks
+    context_parts = []
+    for node in nodes:
+        context_parts.append(node.get_content())
+    
     context_text = "\n\n---\n\n".join(context_parts)
-    return final_nodes, context_text
+    return nodes, context_text
 
 def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
     """
@@ -149,8 +117,8 @@ def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
     )
 
     full_answer = ""
-    checked = False      # sudah cek token awal atau belum
-    is_found = True      # asumsi awal: jawaban ada
+    checked = False 
+    is_found = True
 
     print("[STREAMING] Mulai generate jawaban...")
 
@@ -182,11 +150,9 @@ def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
                     is_found = False
                     break
 
-            # Kalau sudah dicek dan jawaban ada, lanjutkan
             if checked and is_found:
                 print(token, end="", flush=True)
 
-            # Stop kalau sudah selesai
             if chunk.get("done", False):
                 break
 
@@ -194,7 +160,7 @@ def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
         print(f"[STREAMING] Error: {e}")
         is_found = False
 
-    print()  # newline setelah streaming
+    print() 
     return full_answer, is_found
 
 
@@ -237,7 +203,6 @@ def query_documents(query_engine, question: str, index=None) -> dict:
         print("[DEBUG] Streaming dihentikan — jawaban tidak ada → HITL")
         return {"status": "not_found", "answer": None, "sources": []}
 
-    # Kumpulkan sumber dokumen
     sources = []
     for node in source_nodes:
         score = node.score if node.score else 0
