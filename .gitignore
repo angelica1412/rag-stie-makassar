@@ -1,0 +1,17 @@
+# Node modules
+frontend/node_modules/
+node_modules/
+
+# ChromaDB
+data/chroma_db/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Environment
+.env
+
+# Data
+data/nodes.pkl
