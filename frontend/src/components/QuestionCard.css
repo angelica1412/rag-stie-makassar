@@ -1,0 +1,111 @@
+.question-card {
+  background: white;
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  border-left: 4px solid #ffc107;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.question-card.answered {
+  border-left-color: #4caf50;
+  opacity: 0.85;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.status-badge.pending {
+  background: #fff8e1;
+  color: #f57c00;
+}
+
+.status-badge.answered {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.timestamp {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.question-text p {
+  margin-top: 4px;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.answer-text {
+  background: #f1f8e9;
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+
+.answer-text p {
+  margin-top: 4px;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.answered-at {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #888;
+}
+
+.answer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.answer-form textarea {
+  padding: 10px 14px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+.answer-form textarea:focus {
+  border-color: #1a3c6e;
+}
+
+.submit-btn {
+  align-self: flex-end;
+  padding: 8px 20px;
+  background: #1a3c6e;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background: #2d5a9e;
+}
+
+.submit-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}

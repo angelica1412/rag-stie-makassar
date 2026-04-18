@@ -8,12 +8,13 @@ from llama_index.core import VectorStoreIndex, StorageContext, Settings
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.embeddings.ollama import OllamaEmbedding
 from src.RAG_sistem.pdf_reader import read_pdfs_from_folder
+
 import chromadb
 
 
 DOCS_PATH = "./data/documents"
 CHROMA_PATH = "./data/chroma_db"
-EMBED_MODEL = "nomic-embed-text"
+EMBED_MODEL = "qwen3-embedding"
 COLLECTION_NAME = "stie_documents"
 
 def build_index():
@@ -38,6 +39,7 @@ def build_index():
 
     # 4. Buat index
     print("\nMemproses embedding... ini butuh beberapa menit")
+
     index = VectorStoreIndex.from_documents(
         documents,
         storage_context=storage_context,

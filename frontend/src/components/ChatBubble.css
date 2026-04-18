@@ -1,0 +1,84 @@
+.bubble-wrapper {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.bubble-wrapper.user {
+  flex-direction: row-reverse;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e8f0fe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.user-avatar {
+  background: #1a3c6e;
+}
+
+.bubble {
+  max-width: 70%;
+  padding: 12px 16px;
+  border-radius: 18px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.user-bubble {
+  background: #1a3c6e;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.bot-bubble {
+  background: white;
+  color: #333;
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.hitl-bubble {
+  background: #fff8e1;
+  border-left: 3px solid #ffc107;
+}
+
+.error-bubble {
+  background: #fff5f5;
+  border-left: 3px solid #f44336;
+}
+
+.sources {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+  font-size: 12px;
+}
+
+.sources-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.sources ul {
+  margin-top: 4px;
+  padding-left: 16px;
+  color: #888;
+}
+
+.sources li {
+  margin-top: 2px;
+}
+
+.pending-indicator {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #f57c00;
+}
