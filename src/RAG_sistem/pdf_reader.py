@@ -30,18 +30,53 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def extract_tables_from_page(plumber_page) -> str:
+def extract_tables_from_page(plumber_page, preceding_text: str = "") -> str:
+    """
+    Ekstrak tabel dengan label nama tabel dan kolom yang eksplisit
+    supaya LLM bisa membedakan kolom dengan benar.
+    """
     table_text = ""
     try:
         tables = plumber_page.extract_tables()
-        for table in tables:
-            for row in table:
-                cleaned = [cell.strip() if cell else "" for cell in row]
-                table_text += " | ".join(cleaned) + "\n"
+        for table_idx, table in enumerate(tables):
+            if not table:
+                continue
+
+            # Cari nama tabel dari teks sebelumnya
+            table_name = f"Tabel {table_idx + 1}"
+            if preceding_text:
+                lines = preceding_text.split('\n')
+                for line in reversed(lines):
+                    line = line.strip()
+                    if line.lower().startswith('tabel') and len(line) < 150:
+                        table_name = line
+                        break
+
+            # Ambil header dari baris pertama
+            headers = [
+                cell.strip() if cell else f"Kolom{i+1}"
+                for i, cell in enumerate(table[0])
+            ]
+
+            table_text += f"\n[{table_name}]\n"
+            table_text += f"Kolom: {' | '.join(headers)}\n"
+
+            # Format setiap baris dengan label kolom
+            for row_idx, row in enumerate(table[1:], start=1):
+                if not any(cell for cell in row if cell):
+                    continue
+
+                table_text += f"\nBaris {row_idx}:\n"
+                for col_idx, cell in enumerate(row):
+                    if col_idx < len(headers):
+                        header = headers[col_idx]
+                        value = cell.strip() if cell else "-"
+                        if value and value != "-":
+                            table_text += f"  {header}: {value}\n"
+
     except Exception:
         pass
     return table_text
-
 
 # ── Ekstraksi metadata per tipe file ─────────────────────────────────────────
 
@@ -97,10 +132,6 @@ def extract_metadata_from_xlsx(filepath: str) -> str:
 # ── Fungsi utama baca dokumen ─────────────────────────────────────────────────
 
 def read_naratif_documents() -> list[Document]:
-    """
-    Baca dokumen naratif (pedoman, standar, manual, IK) secara full-text.
-    Hanya membaca file PDF.
-    """
     documents = []
     print("\n=== Membaca dokumen NARATIF ===")
 
@@ -127,38 +158,121 @@ def read_naratif_documents() -> list[Document]:
                 text = clean_text(text)
 
                 plumber_page = plumber_doc.pages[page_num]
-                table_text = extract_tables_from_page(plumber_page)
 
-                page_content = text
-                if table_text:
-                    page_content += "\n[TABEL]\n" + table_text
+                # Cek apakah halaman mengandung tabel
+                tables = []
+                try:
+                    tables = plumber_page.extract_tables()
+                except Exception:
+                    pass
 
-                if page_content.strip():
-                    doc = Document(
-                        text=page_content,
-                        metadata={
-                            "file_name": decode_filename(filename),
-                            "file_path": filepath,
-                            "source": decode_filename(filename),
-                            "page_number": page_num + 1,
-                            "tipe_dokumen": "naratif"
-                        }
-                    )
-                    documents.append(doc)
-                    page_count += 1
+                if tables:
+                    # ── Halaman dengan tabel: buat chunk terpisah per tabel
+                    
+                    # Chunk 1: teks naratif halaman (tanpa tabel)
+                    if text.strip():
+                        doc = Document(
+                            text=text,
+                            metadata={
+                                "file_name": display_name,
+                                "file_path": filepath,
+                                "source": display_name,
+                                "page_number": page_num + 1,
+                                "tipe_dokumen": "naratif",
+                                "chunk_type": "text"
+                            }
+                        )
+                        documents.append(doc)
+                        page_count += 1
+
+                    # Chunk 2+: satu chunk per tabel
+                    for table_idx, table in enumerate(tables):
+                        if not table:
+                            continue
+
+                        # Cari nama tabel dari teks sebelumnya
+                        table_name = f"Tabel {table_idx + 1}"
+                        lines = text.split('\n')
+                        for line in reversed(lines):
+                            line_stripped = line.strip()
+                            if (line_stripped.lower().startswith('tabel')
+                                    and len(line_stripped) < 150):
+                                table_name = line_stripped
+                                break
+
+                        # Format tabel dengan label kolom
+                        headers = [
+                            cell.strip() if cell else f"Kolom{i+1}"
+                            for i, cell in enumerate(table[0])
+                        ]
+
+                        table_content = f"[{table_name}]\n"
+                        table_content += f"Kolom: {' | '.join(headers)}\n"
+
+                        for row in table[1:]:
+                            if not any(cell for cell in row if cell):
+                                continue
+                            table_content += "\n"
+                            for col_idx, cell in enumerate(row):
+                                if col_idx < len(headers):
+                                    header = headers[col_idx]
+                                    value = cell.strip() if cell else "-"
+                                    if value and value != "-":
+                                        table_content += (
+                                            f"  {header}: {value}\n"
+                                        )
+
+                        if table_content.strip():
+                            doc = Document(
+                                text=table_content,
+                                metadata={
+                                    "file_name": display_name,
+                                    "file_path": filepath,
+                                    "source": display_name,
+                                    "page_number": page_num + 1,
+                                    "tipe_dokumen": "naratif",
+                                    "chunk_type": "table",
+                                    "table_name": table_name
+                                }
+                            )
+                            documents.append(doc)
+                            page_count += 1
+                            print(
+                                f"    Tabel ditemukan: {table_name}"
+                            )
+
+                else:
+                    # ── Halaman tanpa tabel: chunk biasa
+                    if text.strip():
+                        doc = Document(
+                            text=text,
+                            metadata={
+                                "file_name": display_name,
+                                "file_path": filepath,
+                                "source": display_name,
+                                "page_number": page_num + 1,
+                                "tipe_dokumen": "naratif",
+                                "chunk_type": "text"
+                            }
+                        )
+                        documents.append(doc)
+                        page_count += 1
 
             fitz_doc.close()
             plumber_doc.close()
-            print(f"  Berhasil: {page_count} halaman dari {display_name}")
+            print(f"  Berhasil: {page_count} chunks dari {display_name}")
 
         except Exception as e:
             print(f"  Error membaca {filename}: {e}")
 
-    # Ringkasan
-    naratif_files = set(doc.metadata.get("file_name", "") for doc in documents)
-    print(f"Total naratif: {len(naratif_files)} file ({len(documents)} halaman)")
+    naratif_files = set(
+        doc.metadata.get("file_name", "") for doc in documents
+    )
+    print(
+        f"Total naratif: {len(naratif_files)} file "
+        f"({len(documents)} chunks)"
+    )
     return documents
-
 
 def read_form_documents() -> list[Document]:
     """

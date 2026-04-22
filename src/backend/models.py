@@ -5,20 +5,20 @@ from typing import Optional
 from datetime import datetime
 import uuid
 
-# ── Request dari pengguna ─────────────────────────────────────────────────────
+# Request dari pengguna
 class ChatRequest(BaseModel):
     question: str
     user_id: Optional[str] = None
 
-# ── Response ke pengguna ──────────────────────────────────────────────────────
+# Response ke pengguna
 class ChatResponse(BaseModel):
-    status: str           # "found" | "not_found" | "hitl_pending"
+    status: str  # "found" | "not_found" | "hitl_pending" | "not_relevant"
     answer: Optional[str] = None
     sources: list[str] = []
     question_id: Optional[str] = None
     message: Optional[str] = None
 
-# ── Pertanyaan yang menunggu jawaban HITL ─────────────────────────────────────
+# Pertanyaan yang menunggu jawaban HITL
 class PendingQuestion(BaseModel):
     question_id: str
     question: str
@@ -28,7 +28,7 @@ class PendingQuestion(BaseModel):
     answer: Optional[str] = None
     answered_at: Optional[str] = None
 
-# ── Request jawaban dari admin QA ─────────────────────────────────────────────
+# Request jawaban dari admin QA
 class HITLAnswerRequest(BaseModel):
     question_id: str
     answer: str

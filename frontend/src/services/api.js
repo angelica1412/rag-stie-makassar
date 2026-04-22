@@ -24,7 +24,7 @@ export const checkQuestionStatus = async (questionId) => {
   return response.data;
 };
 
-// ── Endpoint untuk admin QA ───────────────────────────────────────────────────
+// Endpoint untuk admin QA
 
 export const getPendingQuestions = async () => {
   const response = await api.get('/admin/questions');

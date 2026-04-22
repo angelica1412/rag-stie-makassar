@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from src.backend.models import ChatRequest, ChatResponse, HITLAnswerRequest
 from src.backend.hitl_manager import (
     add_pending_question,
@@ -11,7 +13,11 @@ from src.backend.hitl_manager import (
 )
 from src.RAG_sistem.rag_engine import load_index, get_query_engine, query_documents
 
-# ── Simpan index dan query engine di memory ───────────────────────────────────
+import os
+
+FORM_PATH = "./data/documents/form"
+
+# Simpan index dan query engine di memory
 rag_index = None
 rag_query_engine = None
 
@@ -26,7 +32,7 @@ async def lifespan(app: FastAPI):
     yield
     print("Server dimatikan.")
 
-# ── Inisialisasi FastAPI ──────────────────────────────────────────────────────
+# Inisialisasi FastAPI 
 app = FastAPI(
     title="Sistem Tanya Jawab STIE Ciputra Makassar",
     description="RAG-based QA system dengan mekanisme HITL",
@@ -53,18 +59,11 @@ def root():
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
-    """
-    Endpoint utama untuk menerima pertanyaan dari sivitas akademika.
-    Kalau tidak ditemukan → otomatis masuk HITL queue.
-    """
-    if not rag_query_engine:
-        raise HTTPException(
-            status_code=503,
-            detail="RAG engine belum siap"
-        )
-
-    # Cari jawaban di dokumen
-    result = query_documents(rag_query_engine, request.question)
+    result = query_documents(
+        rag_query_engine,
+        request.question,
+        index=rag_index
+    )
 
     if result["status"] == "found":
         return ChatResponse(
@@ -73,8 +72,15 @@ def chat(request: ChatRequest):
             sources=result["sources"],
             message="Jawaban ditemukan dari dokumen internal."
         )
+    elif result["status"] == "not_relevant":
+        return ChatResponse(
+            status="not_relevant",
+            answer=result["answer"],
+            sources=[],
+            message=result["answer"]
+        )
     else:
-        # Tidak ditemukan → masuk HITL queue
+        # HITL
         pending = add_pending_question(
             question=request.question,
             user_id=request.user_id
@@ -84,8 +90,7 @@ def chat(request: ChatRequest):
             answer=None,
             sources=[],
             question_id=pending.question_id,
-            message="Pertanyaan kamu sedang diproses oleh staf QA. "
-                   "Estimasi waktu tunggu 1-3 menit."
+            message="Pertanyaan kamu sedang diproses oleh staf QA."
         )
 
 @app.get("/chat/status/{question_id}")
@@ -100,6 +105,59 @@ def check_status(question_id: str):
             detail="Pertanyaan tidak ditemukan"
         )
     return question
+
+@app.get("/preview/{filename}")
+def preview_form(filename: str):
+    """Preview file form di browser."""
+    filepath = os.path.join(FORM_PATH, filename)
+
+    if not os.path.exists(filepath):
+        raise HTTPException(
+            status_code=404,
+            detail="File tidak ditemukan"
+        )
+
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext == ".pdf":
+        # PDF bisa langsung ditampilkan di browser
+        return FileResponse(
+            path=filepath,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename={filename}"
+            }
+        )
+    else:
+        # DOCX/XLSX tidak bisa preview — redirect ke download
+        return FileResponse(
+            path=filepath,
+            filename=filename,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+@app.get("/download/{filename}")
+def download_form(filename: str):
+    """Download file form."""
+    filepath = os.path.join(FORM_PATH, filename)
+
+    if not os.path.exists(filepath):
+        raise HTTPException(
+            status_code=404,
+            detail="File tidak ditemukan"
+        )
+
+    return FileResponse(
+        path=filepath,
+        filename=filename,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        }
+    )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT UNTUK ADMIN QA (HITL DASHBOARD)

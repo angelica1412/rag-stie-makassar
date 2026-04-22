@@ -25,7 +25,6 @@ function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Polling untuk cek jawaban HITL
   useEffect(() => {
     if (!pendingQuestionId) return;
 
@@ -72,6 +71,15 @@ function ChatPage() {
           type: 'bot',
           text: result.answer,
           sources: result.sources || [],
+          isFormResponse: result.is_form_response || false,
+        }]);
+      } if (result.status === 'not_relevant') {
+        setMessages(prev => [...prev, {
+          id: Date.now(),
+          type: 'bot',
+          text: result.answer,
+          sources: [],
+          isNotRelevant: true,
         }]);
       } else if (result.status === 'hitl_pending') {
         setMessages(prev => [...prev, {
