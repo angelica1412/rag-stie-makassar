@@ -10,6 +10,7 @@ from llama_index.core.vector_stores import (
 )
 import chromadb
 import ollama as ollama_client
+import re
 
 CHROMA_PATH = "./data/chroma_db"
 COLLECTION_NAME = "stie_documents"
@@ -17,7 +18,6 @@ EMBED_MODEL = "qwen3-embedding"
 LLM_MODEL = "qwen2.5:7b"
 SIMILARITY_THRESHOLD = 0.3
 
-# Token awal yang menandakan LLM tidak tahu jawabannya
 TIDAK_TAHU_TOKENS = [
     "maaf",
     "tidak tersedia",
@@ -44,6 +44,32 @@ FORM_KEYWORDS = [
     "form untuk", "formulir untuk"
 ]
 
+KAMPUS_KEYWORDS = [
+    # Akademik
+    "mahasiswa", "dosen", "kuliah", "akademik", "kampus", "stie", "prodi",
+    "program studi", "semester", "sks", "nilai", "ujian", "sidang", "skripsi",
+    "wisuda", "yudisium", "krs", "transkrip", "ipk", "mbkm", "mata kuliah",
+    "kurikulum", "registrasi", "cuti", "drop out", "do",
+
+    # Administrasi & Keuangan
+    "dokumen", "form", "formulir", "pengajuan", "dana", "anggaran",
+    "po", "spk", "rf", "requisition", "purchase order", "pembayaran",
+    "reimburse", "kasbon", "invoice", "kwitansi", "tagihan",
+
+    # Departemen
+    "baa", "bma", "lppm", "qa", "quality assurance", "hcm", "finance",
+    "purchasing", "departemen", "prodi", "informatika", "manajemen",
+
+    # Prosedur & Aturan
+    "prosedur", "pedoman", "standar", "manual", "instruksi", "aturan",
+    "kebijakan", "ketentuan", "syarat", "persyaratan", "mekanisme",
+    "alur", "proses", "langkah", "tahap",
+
+    # Fasilitas & Operasional
+    "ruangan", "laboratorium", "perpustakaan", "parkir",
+    "absensi", "jadwal", "kalender akademik",
+]
+
 def detect_query_type(question: str) -> str:
     """
     Deteksi apakah pertanyaan tentang form atau naratif.
@@ -55,6 +81,32 @@ def detect_query_type(question: str) -> str:
         for keyword in FORM_KEYWORDS
     )
     return "form" if is_form_query else "naratif"
+
+def is_relevant_question(question: str) -> tuple[bool, str]:
+    question_lower = question.lower().strip()
+    PESAN_TIDAK_RELEVAN = (
+        "Maaf, sistem ini hanya dapat menjawab pertanyaan seputar "
+        "dokumen internal, aturan, prosedur, dan pedoman STIE Ciputra Makassar. "
+        "Silakan ajukan pertanyaan yang berkaitan dengan kegiatan akademik "
+        "atau administratif kampus."
+    )
+
+    cleaned = re.sub(
+        r'\b(berapa|berapa hasil|hitung|hasil dari|berapakah)\b',
+        '', question_lower
+    ).strip()
+    is_math = bool(re.match(r'^[\d\s\+\-\*\/\=\(\)\.\,\?]+$', cleaned))
+    if is_math:
+        return False, PESAN_TIDAK_RELEVAN
+
+    has_keyword = any(
+        keyword in question_lower
+        for keyword in KAMPUS_KEYWORDS
+    )
+    if has_keyword:
+        return True, None
+
+    return False, PESAN_TIDAK_RELEVAN
 
 def load_index():
     """Load index dari ChromaDB yang sudah ada."""
@@ -127,6 +179,17 @@ def retrieve_context(index, question: str, query_type: str) -> tuple[list, str]:
 
     nodes = retriever.retrieve(question)
 
+    # Filter berdasarkan threshold
+    nodes = [n for n in nodes if (n.score or 0) >= SIMILARITY_THRESHOLD]
+
+    if not nodes:
+        return [], ""
+
+    # Re-rank menggunakan LLM — pilih top 3 yang paling relevan
+    print(f"[RERANK] Mulai reranking {len(nodes)} node...")
+    nodes = rerank_nodes(question, nodes, top_n=3)
+
+    # Bangun konteks hanya dari top nodes setelah reranking
     context_parts = []
     for node in nodes:
         context_parts.append(node.get_content())
@@ -202,7 +265,12 @@ def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
         stream = ollama_client.generate(
             model=LLM_MODEL,
             prompt=prompt,
-            stream=True
+            stream=True,
+            options={
+                "temperature": 0, 
+                "top_p": 0.9,
+                "repeat_penalty": 1.1
+            }
         )
 
         for chunk in stream:
@@ -235,18 +303,24 @@ def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
     return full_answer, is_found
 
 def query_documents(query_engine, question: str, index=None) -> dict:
-    """
-    Kirim pertanyaan ke sistem RAG dengan interruptible streaming.
-    """
 
-    enhanced_question = question
+    # Validasi relevansi (gunakan pertanyaan asli)
+    is_relevant, pesan_tidak_relevan = is_relevant_question(question)
+    if not is_relevant:
+        return {
+            "status": "not_relevant",
+            "answer": pesan_tidak_relevan,
+            "sources": []
+        }
 
-    query_type = detect_query_type(enhanced_question)
+    query_type = detect_query_type(question)
     print(f"\n[DEBUG] Tipe query: {query_type}")
 
-    # 3. Ambil konteks dari ChromaDB
+    # Perkaya pertanyaan untuk retrieval yang lebih akurat
+    enhanced_question = enhance_query(question)
+
     if index is None:
-        response = query_engine.query(question)
+        response = query_engine.query(enhanced_question)
         source_nodes = response.source_nodes
         context_text = str(response)
     else:
