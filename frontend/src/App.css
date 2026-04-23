@@ -18,7 +18,7 @@ body {
 
 /* ── Navbar ─────────────────────────────────────────────────────────────────── */
 .navbar {
-  background-color: #1a3c6e;
+  background-color: #ff9800;
   padding: 0 24px;
   height: 60px;
   display: flex;
@@ -39,7 +39,7 @@ body {
 
 .brand-text {
   color: white;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
 }
 
@@ -49,11 +49,12 @@ body {
 }
 
 .nav-link {
-  color: rgba(255,255,255,0.85);
+  color: white;
+  font-weight: 600;
   text-decoration: none;
   padding: 6px 16px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 16px;
   transition: background 0.2s;
 }
 

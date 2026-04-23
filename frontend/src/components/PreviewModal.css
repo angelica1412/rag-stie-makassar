@@ -34,7 +34,7 @@
 
 .modal-header h3 {
   font-size: 15px;
-  color: #1a3c6e;
+  color: #e65100;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -51,7 +51,7 @@
 
 .btn-download {
   padding: 6px 14px;
-  background: #1a3c6e;
+  background: #e65100;
   color: white;
   border-radius: 8px;
   text-decoration: none;
@@ -60,7 +60,7 @@
 }
 
 .btn-download:hover {
-  background: #2d5a9e;
+  background: #f57c00;
 }
 
 .btn-close {
@@ -112,7 +112,7 @@
 
 .btn-download-large {
   padding: 10px 24px;
-  background: #1a3c6e;
+  background: #e65100;
   color: white;
   border-radius: 8px;
   text-decoration: none;

@@ -14,7 +14,7 @@
 
 .admin-header h2 {
   font-size: 20px;
-  color: #1a3c6e;
+  color: #e65100;
   margin-right: auto;
 }
 
@@ -27,9 +27,9 @@
 
 .refresh-btn {
   padding: 6px 14px;
-  background: #f0f4ff;
-  color: #1a3c6e;
-  border: 1px solid #c5d3f0;
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffe0b2;
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
@@ -37,7 +37,7 @@
 }
 
 .refresh-btn:hover {
-  background: #dce6ff;
+  background: #ffe0b2;
 }
 
 .tab-bar {
@@ -63,8 +63,8 @@
 }
 
 .tab-btn.active {
-  color: #1a3c6e;
-  border-bottom-color: #1a3c6e;
+  color: #e65100;
+  border-bottom-color: #e65100;
   font-weight: 600;
 }
 

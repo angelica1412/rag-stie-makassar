@@ -25,14 +25,14 @@
 }
 
 .message-input:focus {
-  border-color: #1a3c6e;
+  border-color: #e65100;
 }
 
 .send-button {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: #1a3c6e;
+  background: #e65100;
   color: white;
   border: none;
   cursor: pointer;
@@ -45,7 +45,7 @@
 }
 
 .send-button:hover:not(:disabled) {
-  background: #2d5a9e;
+  background: #f57c00;
 }
 
 .send-button:disabled {
