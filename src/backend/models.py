@@ -1,7 +1,7 @@
 # Struktur data yang digunakan pada backend
 
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 import uuid
 
@@ -12,11 +12,12 @@ class ChatRequest(BaseModel):
 
 # Response ke pengguna
 class ChatResponse(BaseModel):
-    status: str  # "found" | "not_found" | "hitl_pending" | "not_relevant"
+    status: str
     answer: Optional[str] = None
-    sources: list[str] = []
+    sources: list[Any] = []
     question_id: Optional[str] = None
     message: Optional[str] = None
+    is_form_response: Optional[bool] = False
 
 # Pertanyaan yang menunggu jawaban HITL
 class PendingQuestion(BaseModel):

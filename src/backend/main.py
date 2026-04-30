@@ -66,11 +66,16 @@ def chat(request: ChatRequest):
     )
 
     if result["status"] == "found":
+        # Konversi sources form ke string kalau perlu
+        sources = result.get("sources", [])
+        is_form_response = result.get("is_form_response", False)
+
         return ChatResponse(
             status="found",
             answer=result["answer"],
-            sources=result["sources"],
-            message="Jawaban ditemukan dari dokumen internal."
+            sources=sources,  # biarkan sebagai list apapun
+            message="Jawaban ditemukan dari dokumen internal.",
+            is_form_response=is_form_response
         )
     elif result["status"] == "not_relevant":
         return ChatResponse(
@@ -80,7 +85,6 @@ def chat(request: ChatRequest):
             message=result["answer"]
         )
     else:
-        # HITL
         pending = add_pending_question(
             question=request.question,
             user_id=request.user_id

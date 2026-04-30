@@ -16,7 +16,7 @@ CHROMA_PATH = "./data/chroma_db"
 COLLECTION_NAME = "stie_documents"
 EMBED_MODEL = "qwen3-embedding"
 LLM_MODEL = "qwen2.5:7b"
-SIMILARITY_THRESHOLD = 0.3
+SIMILARITY_THRESHOLD = 0.4
 
 # ── Token deteksi tidak tahu ──────────────────────────────────────────────────
 TIDAK_TAHU_TOKENS = [
@@ -88,31 +88,55 @@ KAMPUS_KEYWORDS = [
     "pjk", "rpd", "bpu", "bg", "bilyet",
 ]
 
+SAPAAN_KEYWORDS = [
+    "halo", "hai", "hello", "hi", "hey", "hei",
+    "selamat pagi", "selamat siang", "selamat sore",
+    "selamat malam", "selamat datang", "permisi",
+    "assalamu", "test", "tes", "coba",
+]
+
+PESAN_SAPAAN = (
+    "Halo! Selamat datang di sistem tanya jawab dokumen internal "
+    "STIE Ciputra Makassar. Silakan ajukan pertanyaan Anda "
+    "seputar aturan, prosedur, atau pedoman kampus."
+)
 
 # ── Fungsi deteksi relevansi ──────────────────────────────────────────────────
 def is_relevant_question(question: str) -> tuple[bool, str]:
-    """
-    Cek apakah pertanyaan relevan dengan konteks dokumen kampus.
-    Return: (is_relevant, pesan_jika_tidak_relevan)
-    """
     question_lower = question.lower().strip()
+
     PESAN_TIDAK_RELEVAN = (
         "Maaf, sistem ini hanya dapat menjawab pertanyaan seputar "
-        "dokumen internal, aturan, prosedur, dan pedoman STIE Ciputra Makassar. "
-        "Silakan ajukan pertanyaan yang berkaitan dengan kegiatan akademik "
-        "atau administratif kampus."
+        "dokumen internal, aturan, prosedur, dan pedoman "
+        "STIE Ciputra Makassar. Silakan ajukan pertanyaan yang "
+        "berkaitan dengan kegiatan akademik atau administratif kampus."
     )
 
-    # CEK 1: Ekspresi matematika murni
+    # ── CEK 0: Deteksi sapaan ─────────────────────────────────────────────
+    words = question_lower.split()
+    first_word = words[0] if words else ""
+
+    is_sapaan = (
+        question_lower in SAPAAN_KEYWORDS
+        or
+        (first_word in SAPAAN_KEYWORDS and len(words) < 4)
+    )
+
+    if is_sapaan:
+        return False, PESAN_SAPAAN
+
+    # ── CEK 1: Ekspresi matematika murni ─────────────────────────────────
     cleaned = re.sub(
         r'\b(berapa|berapa hasil|hitung|hasil dari|berapakah)\b',
         '', question_lower
     ).strip()
-    is_math = bool(re.match(r'^[\d\s\+\-\*\/\=\(\)\.\,\?]+$', cleaned))
+    is_math = bool(re.match(
+        r'^[\d\s\+\-\*\/\=\(\)\.\,\?]+$', cleaned
+    ))
     if is_math:
         return False, PESAN_TIDAK_RELEVAN
 
-    # CEK 2: Wajib mengandung keyword kampus
+    # ── CEK 2: Wajib mengandung keyword kampus ────────────────────────────
     has_keyword = any(
         keyword in question_lower
         for keyword in KAMPUS_KEYWORDS
@@ -120,9 +144,7 @@ def is_relevant_question(question: str) -> tuple[bool, str]:
     if has_keyword:
         return True, None
 
-    # Tidak ada keyword kampus → tidak relevan
     return False, PESAN_TIDAK_RELEVAN
-
 
 # ── Fungsi deteksi tipe query ─────────────────────────────────────────────────
 def detect_query_type(question: str) -> str:
@@ -437,13 +459,18 @@ def query_documents(query_engine, question: str, index=None) -> dict:
 
     # 7. Format sumber
     sources = []
-    for key, val in sources_dict.items():
-        if isinstance(val, str):
-            sources.append(val)
-        else:
-            pages = ", ".join(str(p) for p in sorted(val["pages"]))
-            sources.append(f"{val['name']} (hal. {pages})")
 
+    # Cek apakah ada sumber HITL
+    if "hitl" in sources_dict:
+        sources.append("Jawaban dari Staf QA")
+    else:
+        # Tampilkan sumber dokumen biasa
+        for key, val in sources_dict.items():
+            if isinstance(val, str):
+                sources.append(val)
+            else:
+                pages = ", ".join(str(p) for p in sorted(val["pages"]))
+                sources.append(f"{val['name']} (hal. {pages})")
     return {
         "status": "found",
         "answer": answer,
