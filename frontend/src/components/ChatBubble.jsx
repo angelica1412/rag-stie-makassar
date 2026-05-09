@@ -58,6 +58,7 @@ function ChatBubble({ message }) {
             {message.sources.map((src, idx) => {
               const filename = typeof src === "object" ? src.filename : src;
               const label = typeof src === "object" ? src.label : src;
+              const ext = filename ? filename.split(".").pop().toLowerCase() : "";
               const isPdf = filename && filename.toLowerCase().endsWith(".pdf");
 
               return (
@@ -72,15 +73,20 @@ function ChatBubble({ message }) {
                           setPreviewFile({ name: label, filename })
                         }
                       >
-                        👁️ Preview
+                        Preview
                       </button>
                     )}
+                    : (
+                    <span className="file-format-badge">
+                      {ext.toUpperCase()}
+                    </span>
+                    )
                     <a
                       href={`http://localhost:8000/download/${filename}`}
                       download={filename}
                       className="btn-download-small"
                     >
-                      ⬇️ Download
+                      Download
                     </a>
                   </div>
                 </div>

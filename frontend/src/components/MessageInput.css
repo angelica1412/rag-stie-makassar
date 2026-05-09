@@ -25,14 +25,14 @@
 }
 
 .message-input:focus {
-  border-color: #e65100;
+  border-color: #ff9800;
 }
 
 .send-button {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: #e65100;
+  background: #ff9800;
   color: white;
   border: none;
   cursor: pointer;
@@ -75,6 +75,12 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

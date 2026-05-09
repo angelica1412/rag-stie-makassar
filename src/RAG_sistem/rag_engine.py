@@ -20,25 +20,19 @@ SIMILARITY_THRESHOLD = 0.4
 
 # ── Token deteksi tidak tahu ──────────────────────────────────────────────────
 TIDAK_TAHU_TOKENS = [
-    "maaf",
-    "tidak tersedia",
-    "tidak ditemukan",
-    "tidak ada",
-    "tidak disebutkan",
-    "tidak terdapat",
-    "informasi tersebut tidak",
-    "tidak memiliki informasi",
-    "tidak dapat menemukan",
+    "maaf, informasi tersebut tidak tersedia",
+    "maaf, saya tidak dapat menemukan",
+    "informasi tersebut tidak tersedia dalam dokumen",
+    "tidak ditemukan dalam dokumen internal",
     "i cannot",
-    "i don't",
-    "i do not",
-    "no information",
-    "not found",
-    "not available",
+    "i don't know",
+    "no information available",
 ]
 
 # ── Kata kunci form ───────────────────────────────────────────────────────────
 FORM_KEYWORDS = [
+    "form",
+    "formulir",
     "form apa",
     "formulir apa",
     "formulir untuk",
@@ -101,64 +95,67 @@ PESAN_SAPAAN = (
     "seputar aturan, prosedur, atau pedoman kampus."
 )
 
+PESAN_PEMBUKA = (
+    "Silakan sampaikan pertanyaan Anda seputar dokumen internal, "
+    "aturan, prosedur, atau pedoman STIE Ciputra Makassar. "
+    "Saya siap membantu!"
+)
+
 # ── Fungsi deteksi relevansi ──────────────────────────────────────────────────
-def is_relevant_question(question: str) -> tuple[bool, str]:
-    question_lower = question.lower().strip()
+# def is_relevant_question_llm(question: str) -> tuple[bool, str]:
+#     prompt = (
+#         f"Kamu adalah sistem validasi pertanyaan untuk layanan "
+#         f"tanya jawab dokumen internal STIE Ciputra Makassar.\n\n"
+#         f"Klasifikasikan input berikut ke dalam salah satu kategori:\n"
+#         f"1. PERTANYAAN_VALID - pertanyaan lengkap dan relevan dengan "
+#         f"konteks kampus\n"
+#         f"2. SAPAAN - hanya berisi sapaan seperti halo, hai, selamat pagi\n"
+#         f"3. PEMBUKA - kalimat pembuka tanpa pertanyaan seperti "
+#         f"'saya ingin bertanya', 'mau tanya', 'permisi'\n"
+#         f"4. TIDAK_RELEVAN - pertanyaan lengkap tapi tidak berkaitan "
+#         f"dengan konteks kampus\n\n"
+#         f"Jawab HANYA dengan satu kata: "
+#         f"PERTANYAAN_VALID, SAPAAN, PEMBUKA, atau TIDAK_RELEVAN\n\n"
+#         f"Input: {question}\n"
+#         f"Kategori:"
+#     )
 
-    PESAN_TIDAK_RELEVAN = (
-        "Maaf, sistem ini hanya dapat menjawab pertanyaan seputar "
-        "dokumen internal, aturan, prosedur, dan pedoman "
-        "STIE Ciputra Makassar. Silakan ajukan pertanyaan yang "
-        "berkaitan dengan kegiatan akademik atau administratif kampus."
-    )
+#     try:
+#         response = ollama_client.generate(
+#             model=LLM_MODEL,
+#             prompt=prompt,
+#             stream=False,
+#             options={"temperature": 0, "num_predict": 10}
+#         )
+#         result = response.get("response", "").strip().upper()
+#         print(f"[DEBUG] Validasi LLM: {result}")
 
-    # ── CEK 0: Deteksi sapaan ─────────────────────────────────────────────
-    words = question_lower.split()
-    first_word = words[0] if words else ""
+#         if "PERTANYAAN_VALID" in result:
+#             return True, None
+#         elif "SAPAAN" in result:
+#             return False, PESAN_SAPAAN
+#         elif "PEMBUKA" in result:
+#             return False, PESAN_PEMBUKA
+#         else:
+#             return False, PESAN_TIDAK_RELEVAN
 
-    is_sapaan = (
-        question_lower in SAPAAN_KEYWORDS
-        or
-        (first_word in SAPAAN_KEYWORDS and len(words) < 4)
-    )
-
-    if is_sapaan:
-        return False, PESAN_SAPAAN
-
-    # ── CEK 1: Ekspresi matematika murni ─────────────────────────────────
-    cleaned = re.sub(
-        r'\b(berapa|berapa hasil|hitung|hasil dari|berapakah)\b',
-        '', question_lower
-    ).strip()
-    is_math = bool(re.match(
-        r'^[\d\s\+\-\*\/\=\(\)\.\,\?]+$', cleaned
-    ))
-    if is_math:
-        return False, PESAN_TIDAK_RELEVAN
-
-    # ── CEK 2: Wajib mengandung keyword kampus ────────────────────────────
-    has_keyword = any(
-        keyword in question_lower
-        for keyword in KAMPUS_KEYWORDS
-    )
-    if has_keyword:
-        return True, None
-
-    return False, PESAN_TIDAK_RELEVAN
+#     except Exception as e:
+#         print(f"[DEBUG] Validasi LLM error: {e} → fallback")
+#         return _fallback_validation(question)
 
 # ── Fungsi deteksi tipe query ─────────────────────────────────────────────────
 def detect_query_type(question: str) -> str:
-    """
-    Deteksi apakah pertanyaan tentang form atau naratif.
-    Return: 'form' atau 'naratif'
-    """
     question_lower = question.lower()
-    is_form_query = any(
-        keyword in question_lower
-        for keyword in FORM_KEYWORDS
-    )
-    return "form" if is_form_query else "naratif"
 
+    is_form_query = (
+        any(keyword in question_lower for keyword in FORM_KEYWORDS)
+        and not any(word in question_lower for word in [
+            "informasi", "jelaskan", "apa itu", 
+            "bagaimana", "prosedur", "syarat"
+        ])
+    )
+
+    return "form" if is_form_query else "naratif"
 
 # ── Load index ────────────────────────────────────────────────────────────────
 def load_index():
@@ -177,31 +174,115 @@ def load_index():
     )
     return index
 
+def _fallback_validation(question: str) -> tuple[bool, str]:
+    """Fallback ke keyword matching kalau LLM tidak tersedia."""
+    question_lower = question.lower().strip()
+
+    PESAN_TIDAK_RELEVAN = (
+        "Maaf, sistem ini hanya dapat menjawab pertanyaan seputar "
+        "dokumen internal, aturan, prosedur, dan pedoman "
+        "STIE Ciputra Makassar."
+    )
+
+    # Cek sapaan
+    words = question_lower.split()
+    first_word = words[0] if words else ""
+    if (question_lower in SAPAAN_KEYWORDS or
+            (first_word in SAPAAN_KEYWORDS and len(words) < 4)):
+        return False, PESAN_SAPAAN
+
+    # Cek matematika
+    cleaned = re.sub(
+        r'\b(berapa|hitung|hasil dari|berapakah)\b',
+        '', question_lower
+    ).strip()
+    if bool(re.match(r'^[\d\s\+\-\*\/\=\(\)\.\,\?]+$', cleaned)):
+        return False, PESAN_TIDAK_RELEVAN
+
+    # Cek keyword kampus
+    if any(kw in question_lower for kw in KAMPUS_KEYWORDS):
+        return True, None
+
+    return False, PESAN_TIDAK_RELEVAN
+
+# ── Fungsi deteksi relevansi ──────────────────────────────────────────────────
+def is_relevant_question_llm(question: str) -> tuple[bool, str]:
+    """
+    Gunakan LLM untuk menilai relevansi dan kelengkapan pertanyaan.
+    """
+    prompt = (
+        f"Kamu adalah sistem validasi pertanyaan untuk layanan "
+        f"tanya jawab dokumen internal STIE Ciputra Makassar.\n\n"
+        f"Klasifikasikan input berikut ke dalam salah satu kategori:\n"
+        f"1. PERTANYAAN_VALID - pertanyaan lengkap dan relevan dengan "
+        f"konteks kampus (akademik, administrasi, prosedur, dokumen, "
+        f"formulir, aturan kampus)\n"
+        f"2. BUKAN_PERTANYAAN - kalimat pembuka, sapaan, atau "
+        f"pernyataan tanpa pertanyaan yang jelas\n"
+        f"3. TIDAK_RELEVAN - pertanyaan lengkap tapi tidak berkaitan "
+        f"dengan konteks kampus\n\n"
+        f"Jawab HANYA dengan satu kata: "
+        f"PERTANYAAN_VALID, BUKAN_PERTANYAAN, atau TIDAK_RELEVAN\n\n"
+        f"Input: {question}\n"
+        f"Kategori:"
+    )
+
+    try:
+        response = ollama_client.generate(
+            model=LLM_MODEL,
+            prompt=prompt,
+            stream=False,
+            options={"temperature": 0, "num_predict": 10}
+        )
+        result = response.get("response", "").strip().upper()
+        print(f"[DEBUG] Validasi LLM: {result}")
+
+        if "PERTANYAAN_VALID" in result:
+            return True, None
+        elif "BUKAN_PERTANYAAN" in result:
+            return False, (
+                "Silakan sampaikan pertanyaan Anda seputar dokumen "
+                "internal, aturan, prosedur, atau pedoman STIE "
+                "Ciputra Makassar. Saya siap membantu!"
+            )
+        else:
+            return False, (
+                "Maaf, sistem ini hanya dapat menjawab pertanyaan "
+                "seputar dokumen internal STIE Ciputra Makassar."
+            )
+
+    except Exception as e:
+        print(f"[DEBUG] Validasi LLM error: {e} → fallback")
+        return _fallback_validation(question)
 
 # ── Query engine ──────────────────────────────────────────────────────────────
 def get_query_engine(index):
     """Buat query engine dari index."""
     qa_prompt = PromptTemplate(
-        "Kamu adalah asisten sistem tanya jawab dokumen internal "
-        "STIE Ciputra Makassar. Jawab pertanyaan HANYA berdasarkan "
-        "informasi yang ada dalam konteks dokumen berikut.\n\n"
-        "Konteks dokumen:\n"
-        "---------------------\n"
-        "{context_str}\n"
-        "---------------------\n\n"
-        "Aturan penting:\n"
-        "1. Jawab SELALU dalam Bahasa Indonesia\n"
-        "2. Jika pertanyaan meminta prosedur atau langkah-langkah, "
-        "sebutkan SEMUA langkah secara lengkap tanpa ada yang terlewat\n"
-        "3. Jika informasi tidak ada dalam konteks, jawab PERSIS dengan: "
-        "'Maaf, informasi tersebut tidak tersedia dalam dokumen internal kampus.'\n"
-        "4. Jangan mengarang jawaban\n"
-        "5. Jangan menyarankan untuk mencari di tempat lain\n"
-        "6. Jika ada nomor form, kode dokumen, atau istilah teknis "
-        "yang disebutkan dalam konteks, sertakan dalam jawaban\n"
-        "7. Jawab secara terstruktur dan lengkap\n\n"
-        "Pertanyaan: {query_str}\n"
-        "Jawaban: "
+    "Kamu adalah asisten sistem tanya jawab dokumen internal "
+    "STIE Ciputra Makassar. Jawab pertanyaan HANYA berdasarkan "
+    "informasi yang ada dalam konteks dokumen berikut.\n\n"
+    "Konteks dokumen:\n"
+    "---------------------\n"
+    "{context_str}\n"
+    "---------------------\n\n"
+    "Aturan penting:\n"
+    "1. Jawab SELALU dalam Bahasa Indonesia\n"
+    "2. Jika pertanyaan meminta prosedur atau langkah-langkah, "
+    "sebutkan SEMUA langkah secara lengkap tanpa ada yang terlewat\n"
+    "3. Jika informasi SAMA SEKALI tidak ada dalam konteks, jawab PERSIS dengan: "
+    "'Maaf, informasi tersebut tidak tersedia dalam dokumen internal kampus.'\n"
+    "4. Jangan mengarang jawaban\n"
+    "5. Jangan menyarankan untuk mencari di tempat lain\n"
+    "6. Jika ada nomor form, kode dokumen, atau istilah teknis "
+    "yang disebutkan dalam konteks, sertakan dalam jawaban\n"
+    "7. Jawab secara terstruktur dan lengkap\n"
+    "8. Jika kamu sudah memberikan jawaban dari konteks, "
+    "JANGAN tambahkan kalimat 'Maaf' atau 'tidak tersedia' "
+    "di akhir jawaban. Akhiri jawaban langsung setelah informasi "
+    "selesai disampaikan.\n\n"
+    "Pertanyaan: {query_str}\n"
+    "Jawaban: "
     )
 
     query_engine = index.as_query_engine(
@@ -210,7 +291,6 @@ def get_query_engine(index):
         text_qa_template=qa_prompt
     )
     return query_engine
-
 
 # ── Retrieve context ──────────────────────────────────────────────────────────
 def retrieve_context(
@@ -242,6 +322,40 @@ def retrieve_context(
 
     context_text = "\n\n---\n\n".join(context_parts)
     return nodes, context_text
+
+def clean_answer(answer: str) -> str:
+    """
+    Hapus kalimat 'Maaf' yang ditambahkan LLM
+    di akhir jawaban yang sebenarnya sudah lengkap.
+    """
+    # Frasa yang perlu dihapus kalau muncul di akhir
+    trailing_phrases = [
+        "Maaf, informasi tersebut tidak tersedia dalam dokumen internal kampus.",
+        "Maaf, informasi tersebut tidak tersedia dalam dokumen.",
+        "Maaf, saya tidak dapat menemukan informasi",
+        "Informasi tersebut tidak tersedia dalam dokumen internal kampus.",
+    ]
+    
+    cleaned = answer.strip()
+    
+    for phrase in trailing_phrases:
+        if cleaned.endswith(phrase):
+            cleaned = cleaned[:-len(phrase)].strip()
+            break
+    
+    # Hapus juga kalau muncul setelah baris kosong di akhir
+    lines = cleaned.split('\n')
+    while lines and any(
+        phrase.lower() in lines[-1].lower()
+        for phrase in [
+            "maaf, informasi tersebut",
+            "tidak tersedia dalam dokumen internal",
+            "informasi tersebut tidak tersedia"
+        ]
+    ):
+        lines.pop()
+    
+    return '\n'.join(lines).strip()
 
 
 # ── Streaming dengan interupsi ────────────────────────────────────────────────
@@ -350,6 +464,8 @@ def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
         is_found = False
 
     print()
+
+    full_answer = clean_answer(full_answer)
     return full_answer, is_found
 
 
@@ -359,8 +475,7 @@ def query_documents(query_engine, question: str, index=None) -> dict:
     Kirim pertanyaan ke sistem RAG dengan interruptible streaming.
     """
 
-    # 1. Validasi relevansi pertanyaan
-    is_relevant, pesan_tidak_relevan = is_relevant_question(question)
+    is_relevant, pesan_tidak_relevan = is_relevant_question_llm(question)
     if not is_relevant:
         return {
             "status": "not_relevant",
@@ -368,11 +483,9 @@ def query_documents(query_engine, question: str, index=None) -> dict:
             "sources": []
         }
 
-    # 2. Deteksi tipe query
     query_type = detect_query_type(question)
     print(f"\n[DEBUG] Tipe query: {query_type}")
 
-    # 3. Ambil konteks dari ChromaDB
     if index is None:
         response = query_engine.query(question)
         source_nodes = response.source_nodes
@@ -391,14 +504,16 @@ def query_documents(query_engine, question: str, index=None) -> dict:
     for i, node in enumerate(source_nodes):
         score = node.score if node.score else 0
         fname = node.metadata.get('file_name', 'Unknown')
-        print(f"[DEBUG] Node {i+1}: skor={score:.4f}, file={fname}")
+        page  = node.metadata.get('page_number', '-')
+        ctype = node.metadata.get('chunk_type', '-')
+        print(f"[DEBUG] Node {i+1}: skor={score:.4f} | hal={page} | tipe={ctype} | file={fname}")
+        print(f"        Isi: {node.get_content()[:500].strip()}...")
     print(f"[DEBUG] Top score: {top_score:.4f}, Threshold: {SIMILARITY_THRESHOLD}")
 
     if top_score < SIMILARITY_THRESHOLD:
         print("[DEBUG] Skor di bawah threshold → HITL")
         return {"status": "not_found", "answer": None, "sources": []}
 
-    # 4. Khusus query form — langsung return info download tanpa generate
     if query_type == "form":
         form_files = []
         seen = set()

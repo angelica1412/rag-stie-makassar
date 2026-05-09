@@ -29,12 +29,41 @@ def clean_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
+HEADER_STOP_PATTERNS = [
+    r"reproducing or copying without permission",
+    r"uncontrolled copy",
+    r"controlled document",
+    r"document no[:\.]",
+    r"revision[:\.]",
+    r"effective date[:\.]",
+    r"expired date[:\.]",
+]
+
+def remove_page_header(text: str) -> str:
+
+    lines = text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        line_lower = line.lower().strip()
+        
+        is_header_line = any(
+            re.search(pattern, line_lower)
+            for pattern in HEADER_STOP_PATTERNS
+        )
+        
+        is_doc_code = bool(re.match(
+            r'^[a-z]{2,5}[/\-][a-z]{2,5}[/\-]', 
+            line_lower
+        ))
+        
+        if not is_header_line and not is_doc_code:
+            cleaned_lines.append(line)
+    
+    return clean_text('\n'.join(cleaned_lines))
 
 def extract_tables_from_page(plumber_page, preceding_text: str = "") -> str:
-    """
-    Ekstrak tabel dengan label nama tabel dan kolom yang eksplisit
-    supaya LLM bisa membedakan kolom dengan benar.
-    """
+
     table_text = ""
     try:
         tables = plumber_page.extract_tables()
@@ -155,8 +184,8 @@ def read_naratif_documents() -> list[Document]:
             for page_num in range(len(fitz_doc)):
                 fitz_page = fitz_doc[page_num]
                 text = fitz_page.get_text("text")
-                text = clean_text(text)
-
+                text = remove_page_header(text)
+                
                 plumber_page = plumber_doc.pages[page_num]
 
                 # Cek apakah halaman mengandung tabel

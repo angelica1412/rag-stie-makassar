@@ -1,0 +1,6 @@
+{
+  "rata_dataset_evaluasi": 0.4959,
+  "rata_dataset_baru": 0.4604,
+  "selisih": 0.0355,
+  "kesimpulan": "Tidak overfitting"
+}

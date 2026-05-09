@@ -14,7 +14,7 @@
 
 .admin-header h2 {
   font-size: 20px;
-  color: #e65100;
+  color: #ff9800;
   margin-right: auto;
 }
 
@@ -28,7 +28,7 @@
 .refresh-btn {
   padding: 6px 14px;
   background: #fff3e0;
-  color: #e65100;
+  color: #ff9800;
   border: 1px solid #ffe0b2;
   border-radius: 8px;
   font-size: 13px;
@@ -63,8 +63,8 @@
 }
 
 .tab-btn.active {
-  color: #e65100;
-  border-bottom-color: #e65100;
+  color: #ff9800;
+  border-bottom-color: #ff9800;
   font-weight: 600;
 }
 
