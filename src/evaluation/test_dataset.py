@@ -51,7 +51,7 @@ TEST_DATASET = [
         )
     },
     {
-        "question": "Bagaimana proses transfer SKS bagi mahasiswa STIE Ciputra Makassar yang mengambil mata kuliah di PT lain?",
+        "question": "Bagaimana proses transfer SKS bagi mahasiswa yang mengambil mata kuliah di PT lain?",
         "ground_truth": (
             "Proses transfer SKS adalah: "
             "1. Tim asesor melakukan pemeriksaan beban mata kuliah yang diambil. "

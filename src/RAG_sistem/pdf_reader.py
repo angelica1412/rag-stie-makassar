@@ -39,6 +39,96 @@ HEADER_STOP_PATTERNS = [
     r"expired date[:\.]",
 ]
 
+PENGESAHAN_PATTERNS = [
+    "pengesahan",
+    "perumusan",
+    "pemeriksaan",
+    "persetujuan",
+    "penetapan",
+    "penanggungjawab",
+    "head, student",
+    "vice chairman",
+]
+
+def split_by_sections(text: str, doc_title: str) -> list[dict]:
+    """
+    Pecah teks halaman menjadi sub-chunk berdasarkan
+    penanda sub-bagian seperti 4.1, 4.2, dll.
+    Setiap chunk menyertakan key 'section' berisi judul bagian,
+    misalnya '4.1 Tujuan'.
+    """
+    section_pattern = re.compile(
+        r'(?=^\d+\.\d+\s+[A-Z][a-z])',
+        re.MULTILINE
+    )
+
+    parts = section_pattern.split(text)
+
+    if len(parts) <= 1:
+        return [{"text": f"[{doc_title}]\n{text}", "section": ""}]
+
+    heading_pattern = re.compile(r'^(\d+\.\d+\s+\S.*)', re.MULTILINE)
+
+    chunks = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        # Ekstrak judul section dari baris pertama yang cocok pola X.Y
+        heading_match = heading_pattern.match(part)
+        section_title = ""
+        if heading_match:
+            # Ambil hanya baris pertama sebagai judul section
+            section_title = heading_match.group(1).split('\n')[0].strip()
+
+        chunks.append({
+            "text": f"[{doc_title}]\n{part}",
+            "section": section_title
+        })
+
+    return chunks
+
+# Pola yang HANYA muncul di halaman pengesahan (tanda tangan/jabatan resmi)
+PENGESAHAN_TITLE_PATTERNS = [
+    r'^\s*pengesahan\s*$',          # "Pengesahan" sebagai judul baris
+    r'^\s*lembar pengesahan\s*$',   # "Lembar Pengesahan" sebagai judul
+]
+
+PENGESAHAN_SIGNATURE_PATTERNS = [
+    "penanggungjawab",
+    "head, student",
+    "vice chairman",
+    "perumusan",
+    "persetujuan",
+]
+
+def is_pengesahan_page(text: str) -> bool:
+    """
+    Deteksi halaman pengesahan (cover tanda tangan resmi).
+    Harus memenuhi KEDUA syarat:
+    1. Ada kata 'pengesahan' sebagai judul baris (bukan dalam kalimat)
+    2. Ada minimal 2 penanda tanda tangan jabatan
+    Ini menghindari false positive pada halaman isi yang
+    kebetulan menyebut kata 'pengesahan', 'pemeriksaan', dll.
+    """
+    text_lower = text.lower()
+
+    # Syarat 1: "Pengesahan" harus muncul sebagai baris pendek (judul)
+    has_pengesahan_title = any(
+        re.search(pattern, text_lower, re.MULTILINE)
+        for pattern in PENGESAHAN_TITLE_PATTERNS
+    )
+    if not has_pengesahan_title:
+        return False
+
+    # Syarat 2: Ada minimal 2 penanda jabatan/tanda tangan
+    sig_matches = sum(
+        1 for pattern in PENGESAHAN_SIGNATURE_PATTERNS
+        if pattern in text_lower
+    )
+    return sig_matches >= 2
+
 def remove_page_header(text: str) -> str:
 
     lines = text.split('\n')
@@ -160,6 +250,18 @@ def extract_metadata_from_xlsx(filepath: str) -> str:
 
 # ── Fungsi utama baca dokumen ─────────────────────────────────────────────────
 
+def _get_last_section_header(text: str) -> str:
+
+    heading_pattern = re.compile(
+        r'^(\d+\.\d+\s+[A-Z][^\n]{5,80})',
+        re.MULTILINE
+    )
+    matches = heading_pattern.findall(text)
+    if matches:
+        return matches[-1].strip()
+    return ""
+
+
 def read_naratif_documents() -> list[Document]:
     documents = []
     print("\n=== Membaca dokumen NARATIF ===")
@@ -181,12 +283,40 @@ def read_naratif_documents() -> list[Document]:
             plumber_doc = pdfplumber.open(filepath)
             page_count = 0
 
+            # Carry-over: simpan header section terakhir dari halaman sebelumnya
+            # agar halaman lanjutan tetap punya konteks section yang benar.
+            prev_section_header = ""
+
             for page_num in range(len(fitz_doc)):
                 fitz_page = fitz_doc[page_num]
                 text = fitz_page.get_text("text")
                 text = remove_page_header(text)
-                
+
+                doc_title = display_name.replace('.pdf', '').strip()
+
+                # ── Section carry-over ────────────────────────────────────
+                # Jika halaman ini tidak dimulai dengan header section baru (X.Y)
+                # tapi halaman sebelumnya punya header section, inject header itu
+                # di awal halaman agar chunk ini bisa ditemukan dengan query
+                # yang berkaitan dengan section tersebut.
+                has_own_section = bool(re.search(
+                    r'^\d+\.\d+\s+[A-Z]', text, re.MULTILINE
+                ))
+                if not has_own_section and prev_section_header:
+                    text = (
+                        f"[Lanjutan dari bagian: {prev_section_header}]\n"
+                        + text
+                    )
+
+                # Update carry-over untuk halaman berikutnya
+                prev_section_header = _get_last_section_header(text) or prev_section_header
+
+                text = f"[{doc_title}]\n{text}"
                 plumber_page = plumber_doc.pages[page_num]
+
+                if is_pengesahan_page(text):
+                    print(f"    [SKIP] Halaman pengesahan: hal {page_num + 1}")
+                    continue
 
                 # Cek apakah halaman mengandung tabel
                 tables = []
@@ -196,23 +326,26 @@ def read_naratif_documents() -> list[Document]:
                     pass
 
                 if tables:
-                    # ── Halaman dengan tabel: buat chunk terpisah per tabel
                     
                     # Chunk 1: teks naratif halaman (tanpa tabel)
                     if text.strip():
-                        doc = Document(
-                            text=text,
-                            metadata={
-                                "file_name": display_name,
-                                "file_path": filepath,
-                                "source": display_name,
-                                "page_number": page_num + 1,
-                                "tipe_dokumen": "naratif",
-                                "chunk_type": "text"
-                            }
-                        )
-                        documents.append(doc)
-                        page_count += 1
+                        sub_chunks = split_by_sections(text, doc_title)
+                        for chunk_data in sub_chunks:
+                            if chunk_data["text"].strip():
+                                doc = Document(
+                                    text=chunk_data["text"],
+                                    metadata={
+                                        "file_name"    : display_name,
+                                        "file_path"    : filepath,
+                                        "source"       : display_name,
+                                        "page_number"  : page_num + 1,
+                                        "tipe_dokumen" : "naratif",
+                                        "chunk_type"   : "text",
+                                        "section"      : chunk_data.get("section", "")
+                                    }
+                                )
+                                documents.append(doc)
+                                page_count += 1
 
                     # Chunk 2+: satu chunk per tabel
                     for table_idx, table in enumerate(tables):
@@ -293,6 +426,8 @@ def read_naratif_documents() -> list[Document]:
 
         except Exception as e:
             print(f"  Error membaca {filename}: {e}")
+            import traceback
+            traceback.print_exc()
 
     naratif_files = set(
         doc.metadata.get("file_name", "") for doc in documents

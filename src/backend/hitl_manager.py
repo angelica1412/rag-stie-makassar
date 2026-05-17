@@ -1,7 +1,66 @@
 import uuid
+import chromadb
 from datetime import datetime
 from typing import Optional
 from src.backend.models import PendingQuestion
+from llama_index.core import VectorStoreIndex, StorageContext, Settings
+from llama_index.core import Document
+from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.embeddings.ollama import OllamaEmbedding
+from src.RAG_sistem.rag_engine import reload_index
+
+CHROMA_PATH = "./data/chroma_db"
+COLLECTION_NAME = "stie_documents"
+EMBED_MODEL = "qwen3-embedding"
+
+def _save_to_knowledge_base(question: str, answer: str):
+
+    # Setup embedding
+    Settings.embed_model = OllamaEmbedding(model_name=EMBED_MODEL)
+    Settings.llm = None
+
+    # Buat dokumen dari pasangan Q&A
+    doc_content = (
+        f"Pertanyaan: {question}\n"
+        f"Jawaban: {answer}\n"
+        f"Sumber: Jawaban manual dari staf QA STIE Ciputra Makassar"
+    )
+
+    doc = Document(
+        text=doc_content,
+        metadata={
+            "file_name": "HITL_Knowledge_Base",
+            "source": "HITL",
+            "tipe_dokumen": "naratif",
+            "chunk_type": "hitl",
+            "page_number": 1,
+            "question": question,
+            "answered_at": datetime.now().isoformat()
+        }
+    )
+
+    # Simpan ke ChromaDB yang sudah ada
+    chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+    chroma_collection = chroma_client.get_or_create_collection(
+        COLLECTION_NAME
+    )
+    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+    storage_context = StorageContext.from_defaults(
+        vector_store=vector_store
+    )
+
+    # Tambahkan ke index yang sudah ada
+    index = VectorStoreIndex.from_vector_store(
+        vector_store,
+        storage_context=storage_context
+    )
+    index.insert(doc)
+
+    print(f"[HITL] Dokumen berhasil ditambahkan ke ChromaDB.")
+
+    reload_index()
+    print("[HITL] Index berhasil di-reload.")
+
 
 pending_questions: dict[str, PendingQuestion] = {}
 
@@ -61,65 +120,6 @@ def answer_question(
         print(f"[HITL] Gagal menyimpan ke basis pengetahuan: {e}")
 
     return question
-
-
-def _save_to_knowledge_base(question: str, answer: str):
-    """
-    Simpan pasangan pertanyaan-jawaban HITL ke ChromaDB
-    supaya bisa dijawab otomatis di masa mendatang.
-    """
-    import chromadb
-    from llama_index.core import VectorStoreIndex, StorageContext, Settings
-    from llama_index.core import Document
-    from llama_index.vector_stores.chroma import ChromaVectorStore
-    from llama_index.embeddings.ollama import OllamaEmbedding
-
-    CHROMA_PATH = "./data/chroma_db"
-    COLLECTION_NAME = "stie_documents"
-    EMBED_MODEL = "qwen3-embedding"
-
-    # Setup embedding
-    Settings.embed_model = OllamaEmbedding(model_name=EMBED_MODEL)
-    Settings.llm = None
-
-    # Buat dokumen dari pasangan Q&A
-    doc_content = (
-        f"Pertanyaan: {question}\n"
-        f"Jawaban: {answer}\n"
-        f"Sumber: Jawaban manual dari staf QA STIE Ciputra Makassar"
-    )
-
-    doc = Document(
-        text=doc_content,
-        metadata={
-            "file_name": "HITL_Knowledge_Base",
-            "source": "HITL",
-            "tipe_dokumen": "naratif",
-            "chunk_type": "hitl",
-            "page_number": 1,
-            "question": question,
-            "answered_at": datetime.now().isoformat()
-        }
-    )
-
-    # Simpan ke ChromaDB yang sudah ada
-    chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-    chroma_collection = chroma_client.get_or_create_collection(
-        COLLECTION_NAME
-    )
-    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-    storage_context = StorageContext.from_defaults(
-        vector_store=vector_store
-    )
-
-    # Tambahkan ke index yang sudah ada
-    index = VectorStoreIndex.from_vector_store(
-        vector_store,
-        storage_context=storage_context
-    )
-    index.insert(doc)
-
-    print(f"[HITL] Dokumen berhasil ditambahkan ke ChromaDB.")
 
 
 def get_question_by_id(

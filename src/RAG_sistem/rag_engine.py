@@ -101,23 +101,41 @@ PESAN_PEMBUKA = (
     "Saya siap membantu!"
 )
 
-# ── Fungsi deteksi relevansi ──────────────────────────────────────────────────
-# def is_relevant_question_llm(question: str) -> tuple[bool, str]:
+PESAN_HITL = (
+    "Maaf, pertanyaan Anda tidak ditemukan dalam dokumen "
+    "internal yang tersedia pada sistem ini. Pertanyaan Anda "
+    "akan diteruskan kepada staf QA STIE Ciputra Makassar "
+    "untuk mendapatkan jawaban yang tepat. "
+    "Mohon tunggu beberapa saat."
+)
+_global_index = None
+
+# def expand_query(question: str) -> str:
+#     """
+#     Perjelas pertanyaan yang ambigu sebelum retrieval
+#     supaya hasil pencarian lebih akurat.
+#     """
 #     prompt = (
-#         f"Kamu adalah sistem validasi pertanyaan untuk layanan "
-#         f"tanya jawab dokumen internal STIE Ciputra Makassar.\n\n"
-#         f"Klasifikasikan input berikut ke dalam salah satu kategori:\n"
-#         f"1. PERTANYAAN_VALID - pertanyaan lengkap dan relevan dengan "
-#         f"konteks kampus\n"
-#         f"2. SAPAAN - hanya berisi sapaan seperti halo, hai, selamat pagi\n"
-#         f"3. PEMBUKA - kalimat pembuka tanpa pertanyaan seperti "
-#         f"'saya ingin bertanya', 'mau tanya', 'permisi'\n"
-#         f"4. TIDAK_RELEVAN - pertanyaan lengkap tapi tidak berkaitan "
-#         f"dengan konteks kampus\n\n"
-#         f"Jawab HANYA dengan satu kata: "
-#         f"PERTANYAAN_VALID, SAPAAN, PEMBUKA, atau TIDAK_RELEVAN\n\n"
-#         f"Input: {question}\n"
-#         f"Kategori:"
+#         f"Kamu adalah asisten sistem tanya jawab dokumen internal "
+#         f"STIE Ciputra Makassar.\n\n"
+#         f"Tugas kamu adalah memperjelas pertanyaan berikut agar "
+#         f"lebih spesifik sesuai konteks dokumen internal kampus.\n\n"
+#         f"PANDUAN PENTING:\n"
+#         f"- Jika pertanyaan tentang transfer SKS atau pengakuan SKS "
+#         f"mahasiswa yang mengikuti kegiatan di luar kampus → "
+#         f"tambahkan kata 'MBKM' atau 'Merdeka Belajar'\n"
+#         f"- Jika pertanyaan tentang mahasiswa pindah jurusan atau "
+#         f"pindah universitas → gunakan kata 'Transfer Mahasiswa'\n"
+#         f"- Jika pertanyaan tentang batas waktu pembayaran tagihan "
+#         f"vendor atau SPK → tambahkan konteks 'PO SPK vendor'\n"
+#         f"- Jika pertanyaan tentang definisi atau pengertian suatu "
+#         f"istilah → tambahkan kata 'definisi' atau 'pengertian'\n"
+#         f"- Jika pertanyaan sudah spesifik → kembalikan pertanyaan "
+#         f"asli tanpa perubahan\n\n"
+#         f"Pertanyaan asli: {question}\n\n"
+#         f"Tulis HANYA pertanyaan yang sudah diperjelas dalam satu "
+#         f"kalimat, tanpa penjelasan tambahan.\n"
+#         f"Pertanyaan yang diperjelas:"
 #     )
 
 #     try:
@@ -125,34 +143,40 @@ PESAN_PEMBUKA = (
 #             model=LLM_MODEL,
 #             prompt=prompt,
 #             stream=False,
-#             options={"temperature": 0, "num_predict": 10}
+#             options={"temperature": 0, "num_predict": 80}
 #         )
-#         result = response.get("response", "").strip().upper()
-#         print(f"[DEBUG] Validasi LLM: {result}")
-
-#         if "PERTANYAAN_VALID" in result:
-#             return True, None
-#         elif "SAPAAN" in result:
-#             return False, PESAN_SAPAAN
-#         elif "PEMBUKA" in result:
-#             return False, PESAN_PEMBUKA
-#         else:
-#             return False, PESAN_TIDAK_RELEVAN
-
+#         expanded = response.get("response", "").strip()
+#         if expanded and len(expanded) > 10:
+#             print(f"[DEBUG] Query asli    : {question}")
+#             print(f"[DEBUG] Query expanded: {expanded}")
+#             return expanded
+#         return question
 #     except Exception as e:
-#         print(f"[DEBUG] Validasi LLM error: {e} → fallback")
-#         return _fallback_validation(question)
+#         print(f"[DEBUG] expand_query error: {e} → pakai pertanyaan asli")
+#         return question
 
 # ── Fungsi deteksi tipe query ─────────────────────────────────────────────────
 def detect_query_type(question: str) -> str:
     question_lower = question.lower()
 
+    # Kata-kata yang menandakan pertanyaan KONSEPTUAL/NARATIF
+    # meskipun mengandung kata 'form' atau 'formulir'.
+    # Pertanyaan seperti "perbedaan form X", "tujuan formulir Y"
+    # harus dijawab dari dokumen naratif, bukan dari file form itu sendiri.
+    KONSEPTUAL_EXCLUSIONS = [
+        "informasi", "jelaskan", "apa itu",
+        "bagaimana", "prosedur", "syarat",
+        "dimaksud", "pengertian", "definisi",
+        "adalah", "artinya", "maksud",
+        # tambahan: kata-kata perbandingan & tujuan
+        "perbedaan", "membandingkan", "bedanya",
+        "tujuan", "fungsi", "manfaat", "kegunaan",
+        "peran", "kenapa", "mengapa", "alasan",
+    ]
+
     is_form_query = (
         any(keyword in question_lower for keyword in FORM_KEYWORDS)
-        and not any(word in question_lower for word in [
-            "informasi", "jelaskan", "apa itu", 
-            "bagaimana", "prosedur", "syarat"
-        ])
+        and not any(word in question_lower for word in KONSEPTUAL_EXCLUSIONS)
     )
 
     return "form" if is_form_query else "naratif"
@@ -174,6 +198,24 @@ def load_index():
     )
     return index
 
+def reload_index():
+    """
+    Reload index dari ChromaDB supaya data HITL baru bisa ditemukan.
+    Dipanggil setiap kali ada jawaban HITL baru disimpan.
+    """
+    global _global_index
+
+    print("[RAG] Reloading index dari ChromaDB...")
+    _global_index = load_index()
+    print("[RAG] Index berhasil di-reload.")
+
+def get_global_index():
+    """Ambil global index, load kalau belum ada."""
+    global _global_index
+    if _global_index is None:
+        _global_index = load_index()
+    return _global_index
+    
 def _fallback_validation(question: str) -> tuple[bool, str]:
     """Fallback ke keyword matching kalau LLM tidak tersedia."""
     question_lower = question.lower().strip()
@@ -293,9 +335,7 @@ def get_query_engine(index):
     return query_engine
 
 # ── Retrieve context ──────────────────────────────────────────────────────────
-def retrieve_context(
-    index, question: str, query_type: str
-) -> tuple[list, str]:
+def retrieve_context(index, question: str, query_type: str) -> tuple[list, str]:
     """
     Ambil konteks dokumen berdasarkan tipe query.
     """
@@ -356,7 +396,6 @@ def clean_answer(answer: str) -> str:
         lines.pop()
     
     return '\n'.join(lines).strip()
-
 
 # ── Streaming dengan interupsi ────────────────────────────────────────────────
 def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
@@ -444,10 +483,22 @@ def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
             if not checked and len(full_answer) >= 50:
                 checked = True
                 answer_lower = full_answer.lower().strip()
+        
+                # ── Tambahkan debug ini ──────────────────
+                print(f"[DEBUG] 50 char pertama: '{full_answer[:80]}'")
+                print(f"[DEBUG] answer_lower   : '{answer_lower[:80]}'")
+                # ────────────────────────────────────────
+        
                 tidak_tahu = any(
                     phrase in answer_lower
                     for phrase in TIDAK_TAHU_TOKENS
                 )
+
+                if tidak_tahu:
+                    for phrase in TIDAK_TAHU_TOKENS:
+                        if phrase in answer_lower:
+                            print(f"[DEBUG] Frasa yang tertangkap: '{phrase}'")
+        
                 if tidak_tahu:
                     print("[STREAMING] Deteksi dini: tidak tahu → stop")
                     is_found = False
@@ -468,13 +519,10 @@ def stream_with_interrupt(question: str, context: str) -> tuple[str, bool]:
     full_answer = clean_answer(full_answer)
     return full_answer, is_found
 
-
 # ── Query documents ───────────────────────────────────────────────────────────
 def query_documents(query_engine, question: str, index=None) -> dict:
-    """
-    Kirim pertanyaan ke sistem RAG dengan interruptible streaming.
-    """
 
+    # ── 1. Validasi relevansi pertanyaan ──────────────────────────
     is_relevant, pesan_tidak_relevan = is_relevant_question_llm(question)
     if not is_relevant:
         return {
@@ -483,11 +531,15 @@ def query_documents(query_engine, question: str, index=None) -> dict:
             "sources": []
         }
 
+    # ── 2. Deteksi tipe query ─────────────────────────────────────
     query_type = detect_query_type(question)
     print(f"\n[DEBUG] Tipe query: {query_type}")
 
+    # expanded_question = expand_query(question)
+
+    # ── 3. Retrieve context dari ChromaDB ─────────────────────────
     if index is None:
-        response = query_engine.query(question)
+        response     = query_engine.query(question)
         source_nodes = response.source_nodes
         context_text = str(response)
     else:
@@ -498,6 +550,7 @@ def query_documents(query_engine, question: str, index=None) -> dict:
     if not source_nodes:
         return {"status": "not_found", "answer": None, "sources": []}
 
+    # ── 4. Debug — tampilkan node yang ditemukan ──────────────────
     top_score = source_nodes[0].score if source_nodes[0].score else 0
 
     print(f"\n[DEBUG] Jumlah node ditemukan: {len(source_nodes)}")
@@ -507,13 +560,15 @@ def query_documents(query_engine, question: str, index=None) -> dict:
         page  = node.metadata.get('page_number', '-')
         ctype = node.metadata.get('chunk_type', '-')
         print(f"[DEBUG] Node {i+1}: skor={score:.4f} | hal={page} | tipe={ctype} | file={fname}")
-        print(f"        Isi: {node.get_content()[:500].strip()}...")
+        print(f"        Isi: {node.get_content()[:150].strip()}...")
     print(f"[DEBUG] Top score: {top_score:.4f}, Threshold: {SIMILARITY_THRESHOLD}")
 
+    # ── 5. Cek threshold ──────────────────────────────────────────
     if top_score < SIMILARITY_THRESHOLD:
         print("[DEBUG] Skor di bawah threshold → HITL")
-        return {"status": "not_found", "answer": None, "sources": []}
+        return {"status": "not_found", "answer": None, "sources": [], "message": PESAN_HITL}
 
+    # ── 6. Handling query formulir ────────────────────────────────
     if query_type == "form":
         form_files = []
         seen = set()
@@ -524,75 +579,119 @@ def query_documents(query_engine, question: str, index=None) -> dict:
                 if file_name not in seen:
                     seen.add(file_name)
                     form_files.append({
-                        "label": file_name,
+                        "label"   : file_name,
                         "filename": file_name,
-                        "is_form": True
+                        "is_form" : True
                     })
 
         if form_files:
             return {
-                "status": "found",
-                "answer": (
+                "status"          : "found",
+                "answer"          : (
                     "Berikut adalah formulir yang relevan dengan "
                     "pertanyaan kamu. Klik Preview untuk melihat "
                     "isi formulir atau Download untuk mengunduhnya."
                 ),
-                "sources": form_files,
+                "sources"         : form_files,
                 "is_form_response": True
             }
 
-    # 5. Query naratif — generate jawaban dengan streaming
+    # ── 7. Generate jawaban dengan streaming ──────────────────────
     if index is not None:
         answer, is_found = stream_with_interrupt(question, context_text)
     else:
-        answer = str(response)
+        answer   = str(response)
         is_found = True
 
     if not is_found:
         print("[DEBUG] Streaming dihentikan — jawaban tidak ada → HITL")
-        return {"status": "not_found", "answer": None, "sources": []}
+        return {"status": "not_found", "answer": None, "sources": [], "message": PESAN_HITL}
 
-    # 6. Kumpulkan sumber dokumen
-    sources_dict = {}
-    for node in source_nodes:
-        score = node.score if node.score else 0
-        if score >= SIMILARITY_THRESHOLD:
-            file_name = node.metadata.get("file_name", "Unknown")
-            page = node.metadata.get("page_number", "?")
-            tipe = node.metadata.get("tipe_dokumen", "")
+    # ── 8. Bersihkan jawaban ──────────────────────────────────────
+    answer = clean_answer(answer)
 
-            if tipe == "form":
-                sources_dict[file_name] = f"{file_name} (formulir)"
-            else:
-                if file_name not in sources_dict:
-                    sources_dict[file_name] = {
-                        "name": file_name,
-                        "pages": []
-                    }
-                if page not in sources_dict[file_name]["pages"]:
-                    sources_dict[file_name]["pages"].append(page)
+    # ── 9. Tentukan sumber berdasarkan relevansi dengan jawaban ───
+    sources = get_relevant_sources(source_nodes, answer, SIMILARITY_THRESHOLD)
 
-    # 7. Format sumber
-    sources = []
-
-    # Cek apakah ada sumber HITL
-    if "hitl" in sources_dict:
-        sources.append("Jawaban dari Staf QA")
-    else:
-        # Tampilkan sumber dokumen biasa
-        for key, val in sources_dict.items():
-            if isinstance(val, str):
-                sources.append(val)
-            else:
-                pages = ", ".join(str(p) for p in sorted(val["pages"]))
-                sources.append(f"{val['name']} (hal. {pages})")
     return {
-        "status": "found",
-        "answer": answer,
-        "sources": sources,
+        "status"          : "found",
+        "answer"          : answer,
+        "sources"         : sources,
         "is_form_response": False
     }
 
+def get_relevant_sources(source_nodes: list, answer: str, threshold: float) -> list:
+    """
+    Ambil sumber dari node yang chunk-nya relevan dengan jawaban,
+    bukan hanya dari node dengan skor tertinggi.
+    """
+    answer_lower = answer.lower()
+
+    # Ambil kata bermakna dari jawaban (lebih dari 4 karakter)
+    answer_words = [
+        w.strip(".,;:?!()")
+        for w in answer_lower.split()
+        if len(w.strip(".,;:?!()")) > 4
+    ]
+
+    # Hitung kecocokan setiap node dengan jawaban
+    node_scores = []
+    for node in source_nodes:
+        score = node.score if node.score else 0
+        if score < threshold:
+            continue
+
+        content    = node.get_content().lower()
+        fname      = node.metadata.get('file_name', '')
+        page       = node.metadata.get('page_number', 1)
+        chunk_type = node.metadata.get('chunk_type', '')
+
+        # Chunk HITL — langsung kembalikan label khusus
+        if chunk_type == 'hitl':
+            return ["Jawaban dari Staf QA"]
+
+        # Hitung berapa kata jawaban yang muncul di chunk ini
+        match_count = sum(
+            1 for word in answer_words
+            if word in content
+        )
+
+        node_scores.append({
+            "fname"      : fname,
+            "page"       : page,
+            "match_count": match_count,
+            "sim_score"  : score
+        })
+
+    # Urutkan berdasarkan kecocokan dengan jawaban
+    node_scores.sort(
+        key=lambda x: (x["match_count"], x["sim_score"]),
+        reverse=True
+    )
+
+    # Gabungkan halaman dari file yang sama
+    sources_dict = {}
+    for item in node_scores:
+        fname = item["fname"]
+        page  = item["page"]
+        if fname not in sources_dict:
+            sources_dict[fname] = {"pages": [], "match": item["match_count"]}
+        if page not in sources_dict[fname]["pages"]:
+            sources_dict[fname]["pages"].append(page)
+
+    # Format sumber — ambil maksimal 2 file teratas
+    sources = []
+    for fname, val in list(sources_dict.items())[:2]:
+        pages = ", ".join(str(p) for p in sorted(val["pages"]))
+        sources.append(f"{fname} (hal. {pages})")
+
+    # Fallback kalau tidak ada yang cocok
+    if not sources and source_nodes:
+        fname = source_nodes[0].metadata.get('file_name', '')
+        page  = source_nodes[0].metadata.get('page_number', 1)
+        sources.append(f"{fname} (hal. {page})")
+
+    return sources
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

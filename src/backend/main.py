@@ -73,7 +73,7 @@ def chat(request: ChatRequest):
         return ChatResponse(
             status="found",
             answer=result["answer"],
-            sources=sources,  # biarkan sebagai list apapun
+            sources=sources, 
             message="Jawaban ditemukan dari dokumen internal.",
             is_form_response=is_form_response
         )
@@ -94,7 +94,13 @@ def chat(request: ChatRequest):
             answer=None,
             sources=[],
             question_id=pending.question_id,
-            message="Pertanyaan kamu sedang diproses oleh staf QA."
+            message=result.get("message") or (
+                "Maaf, pertanyaan Anda tidak ditemukan dalam dokumen "
+                "internal yang tersedia pada sistem ini. Pertanyaan Anda "
+                "akan diteruskan kepada staf QA STIE Ciputra Makassar "
+                "untuk mendapatkan jawaban yang tepat. "
+                "Mohon tunggu beberapa saat."
+            )
         )
 
 @app.get("/chat/status/{question_id}")

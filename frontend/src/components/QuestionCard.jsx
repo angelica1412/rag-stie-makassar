@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import './QuestionCard.css';
 
-function QuestionCard({ question, onAnswer, showAnswerForm }) {
-  const [answer, setAnswer] = useState('');
+function QuestionCard({
+  question,
+  onAnswer,
+  onAnswerChange, 
+  answerValue, 
+  showAnswerForm
+}) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
-    if (!answer.trim()) return;
+    if (!answerValue.trim()) return;
     setIsSubmitting(true);
-    await onAnswer(question.question_id, answer);
-    setAnswer('');
+    await onAnswer(question.question_id, answerValue);
     setIsSubmitting(false);
   };
 
@@ -45,14 +49,14 @@ function QuestionCard({ question, onAnswer, showAnswerForm }) {
       {showAnswerForm && (
         <div className="answer-form">
           <textarea
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
+            value={answerValue}           // ← dari AdminPage
+            onChange={(e) => onAnswerChange(e.target.value)}  // ← ke AdminPage
             placeholder="Tulis jawaban untuk pertanyaan ini..."
             rows={3}
           />
           <button
             onClick={handleSubmit}
-            disabled={!answer.trim() || isSubmitting}
+            disabled={!answerValue.trim() || isSubmitting}
             className="submit-btn"
           >
             {isSubmitting ? 'Mengirim...' : 'Kirim Jawaban'}

@@ -58,7 +58,9 @@ function ChatBubble({ message }) {
             {message.sources.map((src, idx) => {
               const filename = typeof src === "object" ? src.filename : src;
               const label = typeof src === "object" ? src.label : src;
-              const ext = filename ? filename.split(".").pop().toLowerCase() : "";
+              const ext = filename
+                ? filename.split(".").pop().toLowerCase()
+                : "";
               const isPdf = filename && filename.toLowerCase().endsWith(".pdf");
 
               return (
@@ -111,7 +113,7 @@ function ChatBubble({ message }) {
 
         {message.isPending && (
           <div className="pending-indicator">
-            ⏳ Menunggu jawaban dari staf QA...
+             ⏳ Pertanyaan sedang dialihkan ke staf QA, mohon tunggu...
           </div>
         )}
       </div>

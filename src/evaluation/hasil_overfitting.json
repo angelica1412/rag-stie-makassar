@@ -1,6 +1,141 @@
 {
-  "rata_dataset_evaluasi": 0.4959,
-  "rata_dataset_baru": 0.4604,
-  "selisih": 0.0355,
-  "kesimpulan": "Tidak overfitting"
+  "keterangan": "Dataset A = pertanyaan referensi dari evaluasi utama. Dataset B = pertanyaan baru dengan topik sama tapi sudut pandang berbeda. Metrik utama: answer_similarity (cosine similarity jawaban RAG vs ground truth).",
+  "dataset_a": {
+    "label": "Dataset A (Referensi)",
+    "total": 8,
+    "found_count": 8,
+    "found_rate": 1.0,
+    "avg_answer_sim": 0.9127,
+    "avg_retrieval": 0.5121,
+    "per_kategori": {
+      "definisi": 0.9722,
+      "dokumen": 0.9755,
+      "numerik": 0.7402,
+      "prosedur": 0.9574,
+      "penanggung jawab": 0.9716
+    },
+    "detail": [
+      {
+        "question": "Apa yang dimaksud dengan Purchase Order?",
+        "kategori": "definisi",
+        "answer_sim": 0.9893812421010064,
+        "retrieval_score": 0.49547000884672354
+      },
+      {
+        "question": "Apa saja dokumen yang diperlukan untuk pengajuan kasbon dosen tamu?",
+        "kategori": "dokumen",
+        "answer_sim": 0.9755193780710415,
+        "retrieval_score": 0.4746043219522412
+      },
+      {
+        "question": "Apa yang dimaksud dengan Requisition Form?",
+        "kategori": "definisi",
+        "answer_sim": 0.9988699927971725,
+        "retrieval_score": 0.5816754114874391
+      },
+      {
+        "question": "Berapa besaran retensi minimal dalam pembayaran SPK?",
+        "kategori": "numerik",
+        "answer_sim": 0.738137417488403,
+        "retrieval_score": 0.5947049623817667
+      },
+      {
+        "question": "Apa yang dimaksud dengan MBKM?",
+        "kategori": "definisi",
+        "answer_sim": 0.9282414049683546,
+        "retrieval_score": 0.43111776909409927
+      },
+      {
+        "question": "Bagaimana proses transfer SKS MBKM?",
+        "kategori": "prosedur",
+        "answer_sim": 0.957355372141835,
+        "retrieval_score": 0.5907935601654639
+      },
+      {
+        "question": "Siapa yang bertanggung jawab melakukan pelaporan kegiatan MBKM ke PDDikti?",
+        "kategori": "penanggung jawab",
+        "answer_sim": 0.9715709132188756,
+        "retrieval_score": 0.44608921478318286
+      },
+      {
+        "question": "Berapa batas waktu pembayaran setelah berkas tagihan diterima?",
+        "kategori": "numerik",
+        "answer_sim": 0.7421765307022555,
+        "retrieval_score": 0.48214173032070606
+      }
+    ]
+  },
+  "dataset_b": {
+    "label": "Dataset B (Generalisasi)",
+    "total": 8,
+    "found_count": 8,
+    "found_rate": 1.0,
+    "avg_answer_sim": 0.874,
+    "avg_retrieval": 0.5313,
+    "per_kategori": {
+      "perbedaan konsep": 0.9897,
+      "dokumen": 0.9565,
+      "tujuan program": 0.9076,
+      "peran unit": 0.8352,
+      "ketentuan kontrak": 0.8774,
+      "prosedur": 0.9584,
+      "numerik": 0.6318
+    },
+    "detail": [
+      {
+        "question": "Apa perbedaan antara Requisition Form dan Purchase Order dalam proses pengadaan?",
+        "kategori": "perbedaan konsep",
+        "answer_sim": 0.9897390058650313,
+        "retrieval_score": 0.563094206260383
+      },
+      {
+        "question": "Dokumen apa saja yang harus dilampirkan saat mengajukan reimburse untuk dosen tamu?",
+        "kategori": "dokumen",
+        "answer_sim": 0.9565101818945627,
+        "retrieval_score": 0.5376076121460015
+      },
+      {
+        "question": "Apa tujuan dari program Merdeka Belajar Kampus Merdeka bagi mahasiswa?",
+        "kategori": "tujuan program",
+        "answer_sim": 0.9076055040957388,
+        "retrieval_score": 0.42176193003504775
+      },
+      {
+        "question": "Apa peran BAA dalam proses transfer SKS mahasiswa peserta MBKM?",
+        "kategori": "peran unit",
+        "answer_sim": 0.8358642897250295,
+        "retrieval_score": 0.5641179355061597
+      },
+      {
+        "question": "Berapa lama dan berapa persen retensi yang harus ditahan dalam kontrak SPK?",
+        "kategori": "ketentuan kontrak",
+        "answer_sim": 0.8773945167989113,
+        "retrieval_score": 0.49980009523934177
+      },
+      {
+        "question": "Bagian mana yang bertanggung jawab melaporkan program MBKM ke sistem PDDikti?",
+        "kategori": "peran unit",
+        "answer_sim": 0.8344706712313865,
+        "retrieval_score": 0.48240052694506197
+      },
+      {
+        "question": "Apa yang dilakukan tim asesor saat memproses pengakuan SKS mahasiswa yang kuliah di PT lain?",
+        "kategori": "prosedur",
+        "answer_sim": 0.9583619014656807,
+        "retrieval_score": 0.5009257999743458
+      },
+      {
+        "question": "Berapa jatuh tempo pembayaran invoice tagihan biaya kuliah mahasiswa?",
+        "kategori": "numerik",
+        "answer_sim": 0.6317685904714843,
+        "retrieval_score": 0.6810896908273044
+      }
+    ]
+  },
+  "perbandingan": {
+    "selisih_answer_sim": 0.0387,
+    "selisih_retrieval": -0.0192,
+    "selisih_found_rate": 0.0,
+    "kesimpulan": "Tidak overfitting"
+  }
 }
